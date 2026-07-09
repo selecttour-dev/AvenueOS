@@ -24,3 +24,36 @@ export function bookingTotal(b: {
 }): number {
   return b.guestCount * b.pricePerGuest + b.extraCharges - b.discount;
 }
+
+export const STATUS_LABELS: Record<string, string> = {
+  inquiry: "მოთხოვნა",
+  tentative: "წინასწარი",
+  confirmed: "დადასტურებული",
+  completed: "ჩატარებული",
+  cancelled: "გაუქმებული",
+};
+
+export const STATUS_ORDER = [
+  "inquiry",
+  "tentative",
+  "confirmed",
+  "completed",
+  "cancelled",
+] as const;
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash: "ნაღდი",
+  transfer: "გადარიცხვა",
+  card: "ბარათი",
+};
+
+/** Common suggested categories for event expenses. */
+export const EXPENSE_CATEGORIES = [
+  "პროდუქტი",
+  "სასმელი",
+  "მომსახურე პერსონალი",
+  "მუსიკა / DJ",
+  "დეკორი",
+  "ტრანსპორტი",
+  "სხვა",
+];

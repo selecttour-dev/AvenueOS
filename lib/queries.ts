@@ -12,6 +12,7 @@ import {
   inventoryItems,
   ledger,
   payments,
+  staff,
 } from "@/db/schema";
 import { todayISO } from "./format";
 import { bookingTotal, type BookingRow } from "./booking-shared";
@@ -145,6 +146,110 @@ export async function getBookings(venueId: number): Promise<BookingRow[]> {
     .where(eq(bookings.venueId, venueId))
     .orderBy(desc(bookings.eventDate));
   return rows;
+}
+
+export type BookingPayment = {
+  id: number;
+  paidOn: string;
+  amount: number;
+  method: string;
+  note: string | null;
+};
+
+export type BookingExpense = {
+  id: number;
+  entryDate: string;
+  type: string;
+  category: string | null;
+  amount: number;
+  qty: number;
+  note: string | null;
+  staffName: string | null;
+};
+
+export type BookingDetail = BookingRow & {
+  venueId: number;
+  startTime: string | null;
+  endTime: string | null;
+  clientId: number | null;
+  payments: BookingPayment[];
+  expenses: BookingExpense[];
+};
+
+export async function getBookingDetail(
+  venueId: number,
+  id: number,
+): Promise<BookingDetail | null> {
+  const [b] = await db
+    .select({
+      id: bookings.id,
+      venueId: bookings.venueId,
+      title: bookings.title,
+      eventType: bookings.eventType,
+      eventDate: bookings.eventDate,
+      startTime: bookings.startTime,
+      endTime: bookings.endTime,
+      guestCount: bookings.guestCount,
+      pricePerGuest: bookings.pricePerGuest,
+      extraCharges: bookings.extraCharges,
+      discount: bookings.discount,
+      status: bookings.status,
+      notes: bookings.notes,
+      clientId: bookings.clientId,
+      clientName: clients.name,
+      clientPhone: clients.phone,
+    })
+    .from(bookings)
+    .leftJoin(clients, eq(bookings.clientId, clients.id))
+    .where(and(eq(bookings.id, id), eq(bookings.venueId, venueId)));
+  if (!b) return null;
+
+  const [pays, exps] = await Promise.all([
+    db
+      .select()
+      .from(payments)
+      .where(eq(payments.bookingId, id))
+      .orderBy(desc(payments.paidOn), desc(payments.id)),
+    db
+      .select({
+        id: ledger.id,
+        entryDate: ledger.entryDate,
+        type: ledger.type,
+        category: ledger.category,
+        amount: ledger.amount,
+        qty: ledger.qty,
+        note: ledger.note,
+        staffName: staff.name,
+      })
+      .from(ledger)
+      .leftJoin(staff, eq(ledger.staffId, staff.id))
+      .where(eq(ledger.bookingId, id))
+      .orderBy(desc(ledger.entryDate), desc(ledger.id)),
+  ]);
+
+  const paidTotal = pays.reduce((s, p) => s + p.amount, 0);
+
+  return {
+    ...b,
+    paidTotal,
+    payments: pays.map((p) => ({
+      id: p.id,
+      paidOn: p.paidOn,
+      amount: p.amount,
+      method: p.method,
+      note: p.note,
+    })),
+    expenses: exps.map((e) => ({
+      id: e.id,
+      entryDate: e.entryDate,
+      type: e.type,
+      category: e.category,
+      amount: e.amount,
+      qty: e.qty,
+      note: e.note,
+      staffName: e.staffName,
+    })),
+  };
 }
 
 export async function getDashboardStats(venueId: number) {

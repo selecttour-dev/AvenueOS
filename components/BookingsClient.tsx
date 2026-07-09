@@ -1,59 +1,65 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { CalendarHeart, Plus, Trash2, X, HandCoins } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
-  createBooking,
-  updateBookingStatus,
-  deleteBooking,
-  addPayment,
-} from "@/lib/actions";
+  CalendarHeart,
+  ChevronRight,
+  CircleDollarSign,
+  Hourglass,
+  Plus,
+  X,
+} from "lucide-react";
+import { createBooking } from "@/lib/actions";
 import { bookingTotal, type BookingRow } from "@/lib/booking-shared";
-import { gel, fmtDate, todayISO } from "@/lib/format";
+import { gel, fmtDateShort, todayISO } from "@/lib/format";
 import {
   PageHeader,
   Section,
+  StatCard,
   EmptyState,
   StatusBadge,
   EVENT_TYPE_LABELS,
 } from "@/components/ui";
 
-const STATUSES = [
-  "inquiry",
-  "tentative",
-  "confirmed",
-  "completed",
-  "cancelled",
-] as const;
-
-const STATUS_LABELS: Record<string, string> = {
-  inquiry: "მოთხოვნა",
-  tentative: "წინასწარი",
-  confirmed: "დადასტურებული",
-  completed: "ჩატარებული",
-  cancelled: "გაუქმებული",
-};
-
 const FILTERS = [
-  { key: "all", label: "ყველა" },
   { key: "upcoming", label: "მომავალი" },
+  { key: "all", label: "ყველა" },
   { key: "confirmed", label: "დადასტურებული" },
   { key: "completed", label: "ჩატარებული" },
   { key: "cancelled", label: "გაუქმებული" },
 ];
 
 export default function BookingsClient({ bookings }: { bookings: BookingRow[] }) {
+  const router = useRouter();
   const [showForm, setShowForm] = useState(false);
-  const [filter, setFilter] = useState("all");
-  const [payFor, setPayFor] = useState<BookingRow | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [filter, setFilter] = useState("upcoming");
 
   const today = todayISO();
+
+  const stats = useMemo(() => {
+    const active = bookings.filter((b) => b.status !== "cancelled");
+    const upcoming = active.filter(
+      (b) => b.eventDate >= today && b.status !== "completed",
+    );
+    return {
+      upcomingCount: upcoming.length,
+      pipeline: upcoming.reduce((s, b) => s + bookingTotal(b), 0),
+      outstanding: active.reduce(
+        (s, b) => s + Math.max(bookingTotal(b) - b.paidTotal, 0),
+        0,
+      ),
+    };
+  }, [bookings, today]);
+
   const filtered = useMemo(() => {
     switch (filter) {
       case "upcoming":
         return bookings.filter(
-          (b) => b.eventDate >= today && b.status !== "cancelled" && b.status !== "completed",
+          (b) =>
+            b.eventDate >= today &&
+            b.status !== "cancelled" &&
+            b.status !== "completed",
         );
       case "confirmed":
       case "completed":
@@ -68,7 +74,7 @@ export default function BookingsClient({ bookings }: { bookings: BookingRow[] })
     <>
       <PageHeader
         title="ჯავშნები"
-        subtitle="ივენთების ჯავშნები, სტატუსები და გადახდები"
+        subtitle="ყოველ ჯავშანზე — გადახდები, ხარჯები და მოგება ერთ ადგილას"
         action={
           <button className="btn btn-primary" onClick={() => setShowForm((s) => !s)}>
             {showForm ? <X size={16} /> : <Plus size={16} />}
@@ -76,6 +82,27 @@ export default function BookingsClient({ bookings }: { bookings: BookingRow[] })
           </button>
         }
       />
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <StatCard
+          icon={CalendarHeart}
+          label="მომავალი ივენთები"
+          value={String(stats.upcomingCount)}
+          tone="primary"
+        />
+        <StatCard
+          icon={CircleDollarSign}
+          label="მოსალოდნელი შემოსავალი"
+          value={gel(stats.pipeline)}
+          tone="gold"
+        />
+        <StatCard
+          icon={Hourglass}
+          label="მისაღები თანხა"
+          value={gel(stats.outstanding)}
+          tone={stats.outstanding > 0 ? "red" : "green"}
+        />
+      </div>
 
       {showForm && (
         <div className="mb-6">
@@ -90,8 +117,12 @@ export default function BookingsClient({ bookings }: { bookings: BookingRow[] })
             className="badge cursor-pointer"
             style={
               filter === f.key
-                ? { background: "var(--primary)", color: "#fff" }
-                : { background: "var(--surface)", color: "var(--text-2)", border: "1px solid var(--border)" }
+                ? { background: "var(--text)", color: "var(--surface)" }
+                : {
+                    background: "var(--surface)",
+                    color: "var(--text-2)",
+                    border: "1px solid var(--border)",
+                  }
             }
             onClick={() => setFilter(f.key)}
           >
@@ -104,8 +135,8 @@ export default function BookingsClient({ bookings }: { bookings: BookingRow[] })
         {filtered.length === 0 ? (
           <EmptyState
             icon={CalendarHeart}
-            title="ჯავშნები არ არის"
-            text="დაამატე პირველი ჯავშანი — მიუთითე ივენთის ტიპი, თარიღი, სტუმრების რაოდენობა და ფასი."
+            title={filter === "upcoming" ? "მომავალი ივენთი არ არის" : "ჯავშნები არ არის"}
+            text="დაამატე ჯავშანი — მიუთითე ივენთის ტიპი, თარიღი, სტუმრების რაოდენობა და ფასი."
             action={
               <button className="btn btn-primary" onClick={() => setShowForm(true)}>
                 <Plus size={16} /> ჯავშნის დამატება
@@ -132,8 +163,14 @@ export default function BookingsClient({ bookings }: { bookings: BookingRow[] })
                   const total = bookingTotal(b);
                   const left = Math.max(total - b.paidTotal, 0);
                   return (
-                    <tr key={b.id}>
-                      <td className="whitespace-nowrap font-semibold">{fmtDate(b.eventDate)}</td>
+                    <tr
+                      key={b.id}
+                      className="cursor-pointer"
+                      onClick={() => router.push(`/bookings/${b.id}`)}
+                    >
+                      <td className="whitespace-nowrap font-semibold">
+                        {fmtDateShort(b.eventDate)}
+                      </td>
                       <td>
                         <div className="font-semibold">{b.title}</div>
                         {b.clientName && (
@@ -157,41 +194,12 @@ export default function BookingsClient({ bookings }: { bookings: BookingRow[] })
                         )}
                       </td>
                       <td>
-                        <select
-                          className="select !w-auto !py-1.5 !text-xs"
-                          value={b.status}
-                          onChange={(e) =>
-                            startTransition(() => updateBookingStatus(b.id, e.target.value))
-                          }
-                        >
-                          {STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {STATUS_LABELS[s]}
-                            </option>
-                          ))}
-                        </select>
+                        <StatusBadge status={b.status} />
                       </td>
                       <td>
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            className="btn btn-ghost !px-2.5 !py-1.5"
-                            title="გადახდის დამატება"
-                            onClick={() => setPayFor(b)}
-                          >
-                            <HandCoins size={15} />
-                          </button>
-                          <button
-                            className="btn btn-danger !px-2.5 !py-1.5"
-                            title="წაშლა"
-                            disabled={pending}
-                            onClick={() => {
-                              if (confirm(`წავშალო „${b.title}"?`))
-                                startTransition(() => deleteBooking(b.id));
-                            }}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
+                        <span style={{ color: "var(--text-3)" }}>
+                          <ChevronRight size={16} />
+                        </span>
                       </td>
                     </tr>
                   );
@@ -201,13 +209,12 @@ export default function BookingsClient({ bookings }: { bookings: BookingRow[] })
           </div>
         )}
       </Section>
-
-      {payFor && <PaymentModal booking={payFor} onClose={() => setPayFor(null)} />}
     </>
   );
 }
 
 function NewBookingForm({ onDone }: { onDone: () => void }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -221,11 +228,12 @@ function NewBookingForm({ onDone }: { onDone: () => void }) {
     notes: "",
   });
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set =
+    (k: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const estimate =
-    (Number(form.guestCount) || 0) * (Number(form.pricePerGuest) || 0);
+  const estimate = (Number(form.guestCount) || 0) * (Number(form.pricePerGuest) || 0);
 
   return (
     <Section title="ახალი ჯავშანი">
@@ -299,7 +307,10 @@ function NewBookingForm({ onDone }: { onDone: () => void }) {
                 notes: form.notes,
               });
               if (res?.error) setError(res.error);
-              else onDone();
+              else {
+                onDone();
+                router.refresh();
+              }
             })
           }
         >
@@ -310,77 +321,5 @@ function NewBookingForm({ onDone }: { onDone: () => void }) {
         </button>
       </div>
     </Section>
-  );
-}
-
-function PaymentModal({
-  booking,
-  onClose,
-}: {
-  booking: BookingRow;
-  onClose: () => void;
-}) {
-  const [pending, startTransition] = useTransition();
-  const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState("cash");
-  const [paidOn, setPaidOn] = useState(todayISO());
-  const left = Math.max(bookingTotal(booking) - booking.paidTotal, 0);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgb(23 24 43 / 0.4)" }}
-      onClick={onClose}
-    >
-      <div className="card w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-extrabold">გადახდა — {booking.title}</h3>
-          <button className="btn btn-ghost !px-2 !py-1.5" onClick={onClose}>
-            <X size={16} />
-          </button>
-        </div>
-        <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>
-          გადახდილია {gel(booking.paidTotal)} · დარჩენილი {gel(left)}
-        </p>
-        <div className="mt-4 grid gap-3">
-          <div>
-            <label className="label">თანხა (₾)</label>
-            <input
-              type="number"
-              className="input"
-              autoFocus
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">თარიღი</label>
-              <input type="date" className="input" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
-            </div>
-            <div>
-              <label className="label">მეთოდი</label>
-              <select className="select" value={method} onChange={(e) => setMethod(e.target.value)}>
-                <option value="cash">ნაღდი</option>
-                <option value="transfer">გადარიცხვა</option>
-                <option value="card">ბარათი</option>
-              </select>
-            </div>
-          </div>
-          <button
-            className="btn btn-primary mt-1"
-            disabled={pending || !Number(amount)}
-            onClick={() =>
-              startTransition(async () => {
-                await addPayment(booking.id, Number(amount), paidOn, method);
-                onClose();
-              })
-            }
-          >
-            <HandCoins size={16} /> გადახდის დამატება
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }

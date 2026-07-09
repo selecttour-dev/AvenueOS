@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { VENUE_COOKIE, getActiveVenueId } from "./venue";
 import {
@@ -16,6 +16,7 @@ import {
   fixedCosts,
   ingredients,
   inventoryItems,
+  ledger,
   packageDishes,
   packages,
   payments,
@@ -528,12 +529,140 @@ export async function updateBookingStatus(bookingId: number, status: string) {
     .set({ status: status as typeof bookings.$inferInsert.status })
     .where(eq(bookings.id, bookingId));
   revalidatePath("/bookings");
+  revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/");
+}
+
+export async function updateBooking(
+  bookingId: number,
+  input: {
+    title?: string;
+    eventType?: string;
+    eventDate?: string;
+    startTime?: string | null;
+    endTime?: string | null;
+    guestCount?: number;
+    pricePerGuest?: number;
+    extraCharges?: number;
+    discount?: number;
+    notes?: string | null;
+    clientName?: string | null;
+    clientPhone?: string | null;
+  },
+) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+
+  // Resolve / create / update the client if a name was provided.
+  let clientIdPatch: { clientId?: number | null } = {};
+  if (input.clientName !== undefined) {
+    const name = input.clientName?.trim();
+    if (!name) {
+      clientIdPatch = { clientId: null };
+    } else {
+      const [current] = await db
+        .select({ clientId: bookings.clientId })
+        .from(bookings)
+        .where(eq(bookings.id, bookingId));
+      if (current?.clientId) {
+        await db
+          .update(clients)
+          .set({ name, phone: input.clientPhone?.trim() || null })
+          .where(eq(clients.id, current.clientId));
+      } else {
+        const [c] = await db
+          .insert(clients)
+          .values({ venueId, name, phone: input.clientPhone?.trim() || null })
+          .returning({ id: clients.id });
+        clientIdPatch = { clientId: c.id };
+      }
+    }
+  }
+
+  await db
+    .update(bookings)
+    .set({
+      ...(input.title !== undefined ? { title: input.title.trim() } : {}),
+      ...(input.eventType !== undefined
+        ? { eventType: input.eventType as typeof bookings.$inferInsert.eventType }
+        : {}),
+      ...(input.eventDate !== undefined ? { eventDate: input.eventDate } : {}),
+      ...(input.startTime !== undefined ? { startTime: input.startTime } : {}),
+      ...(input.endTime !== undefined ? { endTime: input.endTime } : {}),
+      ...(input.guestCount !== undefined ? { guestCount: input.guestCount } : {}),
+      ...(input.pricePerGuest !== undefined
+        ? { pricePerGuest: input.pricePerGuest }
+        : {}),
+      ...(input.extraCharges !== undefined
+        ? { extraCharges: input.extraCharges }
+        : {}),
+      ...(input.discount !== undefined ? { discount: input.discount } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+      ...clientIdPatch,
+    })
+    .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
+
+  revalidatePath("/bookings");
+  revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/");
+  return { ok: true };
 }
 
 export async function deleteBooking(bookingId: number) {
   await db.delete(bookings).where(eq(bookings.id, bookingId));
   revalidatePath("/bookings");
+  revalidatePath("/");
+}
+
+// ---------- booking finances (payments + event ledger) ----------
+
+export async function deletePayment(paymentId: number, bookingId: number) {
+  await db.delete(payments).where(eq(payments.id, paymentId));
+  revalidatePath("/bookings");
+  revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/");
+}
+
+/** Log an expense/income against a specific booking. Also lands in the day
+ *  register (same ledger table, filtered by date) once that module exists. */
+export async function addBookingLedgerEntry(input: {
+  bookingId: number;
+  type: string;
+  category?: string;
+  amount: number;
+  qty?: number;
+  entryDate: string;
+  note?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
+  if (!input.entryDate) return { error: "თარიღი აუცილებელია" };
+
+  await db.insert(ledger).values({
+    venueId,
+    bookingId: input.bookingId,
+    entryDate: input.entryDate,
+    type: input.type as typeof ledger.$inferInsert.type,
+    category: input.category?.trim() || null,
+    amount: input.amount,
+    qty: input.qty && input.qty > 0 ? input.qty : 1,
+    note: input.note?.trim() || null,
+  });
+
+  revalidatePath(`/bookings/${input.bookingId}`);
+  revalidatePath("/register");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function deleteBookingLedgerEntry(
+  entryId: number,
+  bookingId: number,
+) {
+  await db.delete(ledger).where(eq(ledger.id, entryId));
+  revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/register");
   revalidatePath("/");
 }
 
@@ -662,6 +791,7 @@ export async function addPayment(
     method: method as typeof payments.$inferInsert.method,
   });
   revalidatePath("/bookings");
+  revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/");
   return { ok: true };
 }
