@@ -1,21 +1,18 @@
-import { Calculator } from "lucide-react";
-import ModuleStub from "@/components/ModuleStub";
+import { getActiveVenueId } from "@/lib/venue";
+import { getMenuData } from "@/lib/queries";
+import CalcClient from "@/components/CalcClient";
 
-export default function CalcPage() {
+export const dynamic = "force-dynamic";
+
+export default async function CalcPage() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return null;
+  const data = await getMenuData(venueId);
   return (
-    <ModuleStub
-      icon={Calculator}
-      title="კალკულაციები"
-      subtitle="რეცეპტების თვითღირებულება, კერძები, პაკეტები"
-      description="ინგრედიენტებიდან კერძებამდე, კერძებიდან პაკეტებამდე — ზუსტი თვითღირებულება ერთ სტუმარზე და მარჟის კონტროლი."
-      features={[
-        "ინგრედიენტების ბაზა — ერთეული, ფასი, დანაკარგის %",
-        "კერძის კალკულაცია — თვითღირებულება პორციაზე, food-cost %",
-        "რეკომენდებული ფასი სამიზნე მარჟიდან",
-        "პაკეტების აწყობა კერძებით — ღირებულება/სტუმარი ავტომატურად",
-        "ინგრედიენტის ფასის ცვლილება ავტომატურად აისახება ყველგან",
-        "ერთი სტუმრის მენიუს კონსტრუქტორი",
-      ]}
+    <CalcClient
+      ingredients={data.ingredients}
+      categories={data.categories}
+      dishes={data.dishes}
     />
   );
 }

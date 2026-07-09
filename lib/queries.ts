@@ -1,10 +1,80 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "./db";
-import { bookings, clients, ledger, payments } from "@/db/schema";
+import {
+  bookings,
+  clients,
+  dishCategories,
+  dishes,
+  dishIngredients,
+  ingredients,
+  ledger,
+  payments,
+} from "@/db/schema";
 import { todayISO } from "./format";
 import { bookingTotal, type BookingRow } from "./booking-shared";
+import type {
+  MenuCategory,
+  MenuDish,
+  MenuIngredient,
+} from "./menu-shared";
 
 export { bookingTotal, type BookingRow };
+
+export async function getMenuData(venueId: number): Promise<{
+  ingredients: MenuIngredient[];
+  categories: MenuCategory[];
+  dishes: MenuDish[];
+}> {
+  const [ings, cats, dishRows] = await Promise.all([
+    db
+      .select()
+      .from(ingredients)
+      .where(eq(ingredients.venueId, venueId))
+      .orderBy(asc(ingredients.name)),
+    db
+      .select()
+      .from(dishCategories)
+      .where(eq(dishCategories.venueId, venueId))
+      .orderBy(asc(dishCategories.sort), asc(dishCategories.id)),
+    db
+      .select()
+      .from(dishes)
+      .where(eq(dishes.venueId, venueId))
+      .orderBy(asc(dishes.name)),
+  ]);
+
+  const lines = dishRows.length
+    ? await db
+        .select()
+        .from(dishIngredients)
+        .where(
+          inArray(
+            dishIngredients.dishId,
+            dishRows.map((d) => d.id),
+          ),
+        )
+    : [];
+
+  return {
+    ingredients: ings.map((i) => ({
+      id: i.id,
+      name: i.name,
+      unit: i.unit,
+      pricePerUnit: i.pricePerUnit,
+      wastePct: i.wastePct,
+    })),
+    categories: cats.map((c) => ({ id: c.id, name: c.name })),
+    dishes: dishRows.map((d) => ({
+      id: d.id,
+      name: d.name,
+      categoryId: d.categoryId,
+      sellPrice: d.sellPrice,
+      lines: lines
+        .filter((l) => l.dishId === d.id)
+        .map((l) => ({ id: l.id, ingredientId: l.ingredientId, qty: l.qty })),
+    })),
+  };
+}
 
 export async function getBookings(venueId: number): Promise<BookingRow[]> {
   const rows = await db

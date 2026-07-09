@@ -6,7 +6,16 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
 import { VENUE_COOKIE, getActiveVenueId } from "./venue";
-import { bookings, clients, payments, venues } from "@/db/schema";
+import {
+  bookings,
+  clients,
+  dishCategories,
+  dishes,
+  dishIngredients,
+  ingredients,
+  payments,
+  venues,
+} from "@/db/schema";
 
 // ---------- venues ----------
 
@@ -96,6 +105,117 @@ export async function deleteBooking(bookingId: number) {
   await db.delete(bookings).where(eq(bookings.id, bookingId));
   revalidatePath("/bookings");
   revalidatePath("/");
+}
+
+// ---------- menu / calculations ----------
+
+export async function createIngredient(input: {
+  name: string;
+  unit: string;
+  pricePerUnit: number;
+  wastePct?: number;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !input.name.trim()) return;
+  await db.insert(ingredients).values({
+    venueId,
+    name: input.name.trim(),
+    unit: input.unit as typeof ingredients.$inferInsert.unit,
+    pricePerUnit: input.pricePerUnit || 0,
+    wastePct: input.wastePct || 0,
+  });
+  revalidatePath("/calc");
+}
+
+export async function updateIngredient(
+  id: number,
+  input: { name?: string; pricePerUnit?: number; wastePct?: number },
+) {
+  await db
+    .update(ingredients)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.pricePerUnit !== undefined
+        ? { pricePerUnit: input.pricePerUnit }
+        : {}),
+      ...(input.wastePct !== undefined ? { wastePct: input.wastePct } : {}),
+    })
+    .where(eq(ingredients.id, id));
+  revalidatePath("/calc");
+}
+
+export async function deleteIngredient(id: number) {
+  await db.delete(ingredients).where(eq(ingredients.id, id));
+  revalidatePath("/calc");
+}
+
+export async function createDishCategory(name: string) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !name.trim()) return;
+  await db.insert(dishCategories).values({ venueId, name: name.trim() });
+  revalidatePath("/calc");
+}
+
+export async function deleteDishCategory(id: number) {
+  await db.delete(dishCategories).where(eq(dishCategories.id, id));
+  revalidatePath("/calc");
+}
+
+export async function createDish(input: {
+  name: string;
+  categoryId: number | null;
+  sellPrice: number;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !input.name.trim()) return;
+  await db.insert(dishes).values({
+    venueId,
+    name: input.name.trim(),
+    categoryId: input.categoryId,
+    sellPrice: input.sellPrice || 0,
+  });
+  revalidatePath("/calc");
+}
+
+export async function updateDish(
+  id: number,
+  input: { name?: string; sellPrice?: number; categoryId?: number | null },
+) {
+  await db
+    .update(dishes)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.sellPrice !== undefined ? { sellPrice: input.sellPrice } : {}),
+      ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
+    })
+    .where(eq(dishes.id, id));
+  revalidatePath("/calc");
+}
+
+export async function deleteDish(id: number) {
+  await db.delete(dishes).where(eq(dishes.id, id));
+  revalidatePath("/calc");
+}
+
+export async function addRecipeLine(
+  dishId: number,
+  ingredientId: number,
+  qty: number,
+) {
+  if (!qty || qty <= 0) return;
+  await db.insert(dishIngredients).values({ dishId, ingredientId, qty });
+  revalidatePath("/calc");
+}
+
+export async function updateRecipeLine(lineId: number, qty: number) {
+  if (!qty || qty <= 0) return;
+  await db.update(dishIngredients).set({ qty }).where(eq(dishIngredients.id, lineId));
+  revalidatePath("/calc");
+}
+
+export async function deleteRecipeLine(lineId: number) {
+  await db.delete(dishIngredients).where(eq(dishIngredients.id, lineId));
+  revalidatePath("/calc");
 }
 
 export async function addPayment(
