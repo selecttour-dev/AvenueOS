@@ -1,20 +1,12 @@
-import { Wallet } from "lucide-react";
-import ModuleStub from "@/components/ModuleStub";
+import { getActiveVenueId } from "@/lib/venue";
+import { getFixedCosts } from "@/lib/queries";
+import FinanceClient from "@/components/FinanceClient";
 
-export default function FinancePage() {
-  return (
-    <ModuleStub
-      icon={Wallet}
-      title="ფინანსები"
-      subtitle="მოგება-ზარალი, ფიქსირებული ხარჯები, ფულადი ნაკადი"
-      description="სრული ფინანსური სურათი — თვეების მიხედვით შემოსავალი, ხარჯები, მოგება და ფულადი ნაკადის დინამიკა."
-      features={[
-        "P&L თვეების მიხედვით (შემოსავალი − ცვლადი − ფიქსირებული = მოგება)",
-        "ფიქსირებული ხარჯების მართვა (ქირა, კომუნალური, ხელფასები)",
-        "ფულადი ნაკადის გრაფიკი და კუმულაციური ბალანსი",
-        "ივენთების მომგებიანობა ტიპების მიხედვით",
-        "დეპოზიტები და მისაღები თანხების კონტროლი",
-      ]}
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function FinancePage() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return null;
+  const fixedCosts = await getFixedCosts(venueId);
+  return <FinanceClient fixedCosts={fixedCosts} />;
 }

@@ -351,6 +351,44 @@ export async function duplicateVenueData(targetVenueId: number) {
   return { ok: true, counts, targetName: target.name };
 }
 
+// ---------- fixed costs ----------
+
+export async function createFixedCost(input: {
+  name: string;
+  monthlyAmount: number;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !input.name.trim()) return;
+  await db.insert(fixedCosts).values({
+    venueId,
+    name: input.name.trim(),
+    monthlyAmount: input.monthlyAmount || 0,
+  });
+  revalidatePath("/finance");
+}
+
+export async function updateFixedCost(
+  id: number,
+  input: { name?: string; monthlyAmount?: number; active?: boolean },
+) {
+  await db
+    .update(fixedCosts)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.monthlyAmount !== undefined
+        ? { monthlyAmount: input.monthlyAmount }
+        : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+    })
+    .where(eq(fixedCosts.id, id));
+  revalidatePath("/finance");
+}
+
+export async function deleteFixedCost(id: number) {
+  await db.delete(fixedCosts).where(eq(fixedCosts.id, id));
+  revalidatePath("/finance");
+}
+
 // ---------- inventory ----------
 
 export async function createInventoryItem(input: {

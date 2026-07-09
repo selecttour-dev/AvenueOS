@@ -7,6 +7,7 @@ import {
   dishes,
   dishIngredients,
   dishInventory,
+  fixedCosts,
   ingredients,
   inventoryItems,
   ledger,
@@ -82,6 +83,27 @@ export async function getMenuData(venueId: number): Promise<{
         .map((l) => ({ id: l.id, itemId: l.itemId, qtyPerPortion: l.qtyPerPortion })),
     })),
   };
+}
+
+export type FixedCostRow = {
+  id: number;
+  name: string;
+  monthlyAmount: number;
+  active: boolean;
+};
+
+export async function getFixedCosts(venueId: number): Promise<FixedCostRow[]> {
+  const rows = await db
+    .select()
+    .from(fixedCosts)
+    .where(eq(fixedCosts.venueId, venueId))
+    .orderBy(desc(fixedCosts.monthlyAmount));
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    monthlyAmount: r.monthlyAmount,
+    active: r.active,
+  }));
 }
 
 export async function getInventoryItems(venueId: number): Promise<InventoryItem[]> {

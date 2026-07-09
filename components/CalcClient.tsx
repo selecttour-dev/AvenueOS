@@ -612,8 +612,23 @@ function DishCard({
           }
         />
         <Metric
-          label="მარჟა"
+          label="მოგება / პორცია"
           value={dish.sellPrice ? gel(dish.sellPrice - cost, 2) : "—"}
+        />
+        <Metric
+          label="მარჟა %"
+          value={
+            dish.sellPrice
+              ? `${(((dish.sellPrice - cost) / dish.sellPrice) * 100).toFixed(0)}%`
+              : "—"
+          }
+          color={
+            !dish.sellPrice
+              ? undefined
+              : dish.sellPrice - cost <= 0
+                ? "var(--red)"
+                : "var(--green)"
+          }
         />
         <div onClick={(e) => e.stopPropagation()}>
           <div className="label !mb-1">გასაყიდი ფასი</div>
