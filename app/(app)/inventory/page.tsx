@@ -1,20 +1,15 @@
-import { Boxes } from "lucide-react";
-import ModuleStub from "@/components/ModuleStub";
+import { getActiveVenueId } from "@/lib/venue";
+import { getInventoryItems, getMenuData } from "@/lib/queries";
+import InventoryClient from "@/components/InventoryClient";
 
-export default function InventoryPage() {
-  return (
-    <ModuleStub
-      icon={Boxes}
-      title="ინვენტარიზაცია"
-      subtitle="ჭურჭელი, ტექნიკა, მარაგები — რაოდენობა და ღირებულება"
-      description="ინვენტარის სრული აღრიცხვა მოძრაობის ისტორიით და ჭკვიანი ანალიზით — რამდენ სტუმარს მოემსახურები არსებული მარაგით."
-      features={[
-        "ინვენტარის სია — რაოდენობა, ერთეულის ფასი, ჯამური ღირებულება",
-        "მოძრაობის ისტორია (შემოსვლა / ჩამოწერა / დაზიანება)",
-        "მინიმალური ზღვრები და შევსების შეხსენება",
-        "ტევადობის ანალიზი — რომელი ნივთი ზღუდავს სტუმრების მაქსიმუმს",
-        "სავაჭრო სია სამიზნე სტუმრების რაოდენობისთვის",
-      ]}
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function InventoryPage() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return null;
+  const [items, menu] = await Promise.all([
+    getInventoryItems(venueId),
+    getMenuData(venueId),
+  ]);
+  return <InventoryClient items={items} dishes={menu.dishes} />;
 }

@@ -345,6 +345,24 @@ export const inventoryItems = pgTable("inventory_items", {
   minQty: numeric("min_qty", { precision: 12, scale: 2, mode: "number" }),
 });
 
+// Which inventory items a dish "consumes" while served (e.g. lobiani → 1 plate)
+export const dishInventory = pgTable("dish_inventory", {
+  id: serial("id").primaryKey(),
+  dishId: integer("dish_id")
+    .notNull()
+    .references(() => dishes.id, { onDelete: "cascade" }),
+  itemId: integer("item_id")
+    .notNull()
+    .references(() => inventoryItems.id, { onDelete: "cascade" }),
+  qtyPerPortion: numeric("qty_per_portion", {
+    precision: 10,
+    scale: 3,
+    mode: "number",
+  })
+    .notNull()
+    .default(1),
+});
+
 export const inventoryMoves = pgTable("inventory_moves", {
   id: serial("id").primaryKey(),
   itemId: integer("item_id")

@@ -6,13 +6,16 @@ import {
   dishCategories,
   dishes,
   dishIngredients,
+  dishInventory,
   ingredients,
+  inventoryItems,
   ledger,
   payments,
 } from "@/db/schema";
 import { todayISO } from "./format";
 import { bookingTotal, type BookingRow } from "./booking-shared";
 import type {
+  InventoryItem,
   MenuCategory,
   MenuDish,
   MenuIngredient,
@@ -43,17 +46,19 @@ export async function getMenuData(venueId: number): Promise<{
       .orderBy(asc(dishes.name)),
   ]);
 
-  const lines = dishRows.length
-    ? await db
-        .select()
-        .from(dishIngredients)
-        .where(
-          inArray(
-            dishIngredients.dishId,
-            dishRows.map((d) => d.id),
-          ),
-        )
-    : [];
+  const dishIds = dishRows.map((d) => d.id);
+  const [lines, invLines] = dishIds.length
+    ? await Promise.all([
+        db
+          .select()
+          .from(dishIngredients)
+          .where(inArray(dishIngredients.dishId, dishIds)),
+        db
+          .select()
+          .from(dishInventory)
+          .where(inArray(dishInventory.dishId, dishIds)),
+      ])
+    : [[], []];
 
   return {
     ingredients: ings.map((i) => ({
@@ -72,8 +77,28 @@ export async function getMenuData(venueId: number): Promise<{
       lines: lines
         .filter((l) => l.dishId === d.id)
         .map((l) => ({ id: l.id, ingredientId: l.ingredientId, qty: l.qty })),
+      invLines: invLines
+        .filter((l) => l.dishId === d.id)
+        .map((l) => ({ id: l.id, itemId: l.itemId, qtyPerPortion: l.qtyPerPortion })),
     })),
   };
+}
+
+export async function getInventoryItems(venueId: number): Promise<InventoryItem[]> {
+  const rows = await db
+    .select()
+    .from(inventoryItems)
+    .where(eq(inventoryItems.venueId, venueId))
+    .orderBy(asc(inventoryItems.name));
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    category: r.category,
+    unit: r.unit,
+    quantity: r.quantity,
+    unitPrice: r.unitPrice,
+    minQty: r.minQty,
+  }));
 }
 
 export async function getBookings(venueId: number): Promise<BookingRow[]> {

@@ -1,19 +1,22 @@
-import { Settings } from "lucide-react";
-import ModuleStub from "@/components/ModuleStub";
+import { getActiveVenue, getVenues } from "@/lib/venue";
+import SettingsClient from "@/components/SettingsClient";
 
-export default function SettingsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SettingsPage() {
+  const [venue, venues] = await Promise.all([getActiveVenue(), getVenues()]);
+  if (!venue) return null;
   return (
-    <ModuleStub
-      icon={Settings}
-      title="პარამეტრები"
-      subtitle="ობიექტის და ბიზნეს-მოდელის პარამეტრები"
-      description="ობიექტის ძირითადი მონაცემები და მოდელის საწყისი პარამეტრები, რომლებზეც აშენდება პროგნოზები."
-      features={[
-        "ობიექტის სახელი, მისამართი, ტევადობა",
-        "ნაგულისხმევი ფასი სტუმარზე და კვების ღირებულება",
-        "სამიზნე food-cost % და მომსახურე პერსონალის ხარჯი",
-        "ობიექტების დამატება / გადარქმევა",
-      ]}
+    <SettingsClient
+      venue={{
+        id: venue.id,
+        name: venue.name,
+        address: venue.address,
+        capacity: venue.capacity,
+      }}
+      otherVenues={venues
+        .filter((v) => v.id !== venue.id)
+        .map((v) => ({ id: v.id, name: v.name }))}
     />
   );
 }

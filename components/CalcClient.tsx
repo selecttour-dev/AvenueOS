@@ -13,15 +13,18 @@ import {
   X,
 } from "lucide-react";
 import {
+  addDishInventory,
   addRecipeLine,
   createDish,
   createDishCategory,
   createIngredient,
   deleteDish,
   deleteDishCategory,
+  deleteDishInventory,
   deleteIngredient,
   deleteRecipeLine,
   updateDish,
+  updateDishInventory,
   updateIngredient,
   updateRecipeLine,
 } from "@/lib/actions";
@@ -33,6 +36,7 @@ import {
   foodCostPct,
   lineCost,
   suggestedPrice,
+  type InventoryItem,
   type MenuCategory,
   type MenuDish,
   type MenuIngredient,
@@ -44,9 +48,15 @@ type Props = {
   ingredients: MenuIngredient[];
   categories: MenuCategory[];
   dishes: MenuDish[];
+  inventoryItems: InventoryItem[];
 };
 
-export default function CalcClient({ ingredients, categories, dishes }: Props) {
+export default function CalcClient({
+  ingredients,
+  categories,
+  dishes,
+  inventoryItems,
+}: Props) {
   const [tab, setTab] = useState<"dishes" | "ingredients">("dishes");
   const ingredientsById = useMemo(
     () => new Map(ingredients.map((i) => [i.id, i])),
@@ -81,6 +91,7 @@ export default function CalcClient({ ingredients, categories, dishes }: Props) {
           ingredientsById={ingredientsById}
           categories={categories}
           dishes={dishes}
+          inventoryItems={inventoryItems}
           goToIngredients={() => setTab("ingredients")}
         />
       )}
@@ -307,12 +318,14 @@ function DishesTab({
   ingredientsById,
   categories,
   dishes,
+  inventoryItems,
   goToIngredients,
 }: {
   ingredients: MenuIngredient[];
   ingredientsById: Map<number, MenuIngredient>;
   categories: MenuCategory[];
   dishes: MenuDish[];
+  inventoryItems: InventoryItem[];
   goToIngredients: () => void;
 }) {
   const [pending, startTransition] = useTransition();
@@ -495,6 +508,7 @@ function DishesTab({
               categories={categories}
               ingredients={ingredients}
               ingredientsById={ingredientsById}
+              inventoryItems={inventoryItems}
             />
           ))}
         </div>
@@ -548,11 +562,13 @@ function DishCard({
   categories,
   ingredients,
   ingredientsById,
+  inventoryItems,
 }: {
   dish: MenuDish;
   categories: MenuCategory[];
   ingredients: MenuIngredient[];
   ingredientsById: Map<number, MenuIngredient>;
+  inventoryItems: InventoryItem[];
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -637,6 +653,7 @@ function DishCard({
             ingredients={ingredients}
             ingredientsById={ingredientsById}
           />
+          <ServingInventoryEditor dish={dish} inventoryItems={inventoryItems} />
         </div>
       )}
     </div>
@@ -797,6 +814,143 @@ function RecipeEditor({
         )}
       </div>
     </div>
+  );
+}
+
+function ServingInventoryEditor({
+  dish,
+  inventoryItems,
+}: {
+  dish: MenuDish;
+  inventoryItems: InventoryItem[];
+}) {
+  const [pending, startTransition] = useTransition();
+  const [itemId, setItemId] = useState("");
+  const [qty, setQty] = useState("1");
+
+  const itemsById = useMemo(
+    () => new Map(inventoryItems.map((i) => [i.id, i])),
+    [inventoryItems],
+  );
+  const available = inventoryItems.filter(
+    (i) => !dish.invLines.some((l) => l.itemId === i.id),
+  );
+
+  return (
+    <div className="mt-5">
+      <div className="label !mb-2">
+        სერვირების ინვენტარი (რაზე გადის — მაგ. ლობიანი → 1 თეფში)
+      </div>
+
+      {dish.invLines.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {dish.invLines.map((line) => {
+            const item = itemsById.get(line.itemId);
+            if (!item) return null;
+            return (
+              <InvLineChip key={line.id} line={line} item={item} />
+            );
+          })}
+        </div>
+      )}
+
+      {inventoryItems.length === 0 ? (
+        <p className="text-sm" style={{ color: "var(--text-3)" }}>
+          ინვენტარი ჯერ ცარიელია — ჯერ „ინვენტარიზაციაში" შეიყვანე თეფშები,
+          ჭიქები და ა.შ.
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-48 flex-1">
+            <select
+              className="select"
+              value={itemId}
+              onChange={(e) => setItemId(e.target.value)}
+            >
+              <option value="">— აირჩიე ინვენტარი —</option>
+              {available.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name} (მარაგში {i.quantity} {i.unit})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <input
+              type="number"
+              className="input !w-24"
+              placeholder="1"
+              title="რაოდენობა პორციაზე"
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+            />
+          </div>
+          <button
+            className="btn btn-ghost"
+            disabled={pending || !itemId || !(Number(qty) > 0)}
+            onClick={() =>
+              startTransition(async () => {
+                await addDishInventory(dish.id, Number(itemId), Number(qty));
+                setItemId("");
+                setQty("1");
+              })
+            }
+          >
+            <Plus size={15} /> მიბმა
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InvLineChip({
+  line,
+  item,
+}: {
+  line: { id: number; itemId: number; qtyPerPortion: number };
+  item: InventoryItem;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [editing, setEditing] = useState(false);
+  const [qty, setQty] = useState(String(line.qtyPerPortion));
+
+  return (
+    <span
+      className="badge"
+      style={{
+        background: "var(--blue-soft)",
+        color: "var(--blue)",
+      }}
+    >
+      {item.name} ×
+      {editing ? (
+        <input
+          type="number"
+          className="input !w-16 !px-1.5 !py-0.5 !text-xs"
+          value={qty}
+          autoFocus
+          onChange={(e) => setQty(e.target.value)}
+          onBlur={() => {
+            const v = Number(qty);
+            if (v > 0 && v !== line.qtyPerPortion)
+              startTransition(() => updateDishInventory(line.id, v));
+            setEditing(false);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        />
+      ) : (
+        <b className="cursor-pointer" onClick={() => setEditing(true)}>
+          {line.qtyPerPortion}
+        </b>
+      )}
+      /პორცია
+      <X
+        size={12}
+        className="cursor-pointer opacity-60 hover:opacity-100"
+        onClick={() => !pending && startTransition(() => deleteDishInventory(line.id))}
+      />
+    </span>
   );
 }
 
