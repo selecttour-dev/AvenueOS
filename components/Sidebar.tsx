@@ -52,13 +52,10 @@ export default function Sidebar({
     >
       <div className="flex items-center gap-3 px-2">
         <span
-          className="flex h-10 w-10 items-center justify-center rounded-xl text-white"
-          style={{
-            background: "linear-gradient(135deg, var(--primary) 0%, #9b8cff 100%)",
-            boxShadow: "0 6px 18px -6px rgb(109 94 252 / 0.6)",
-          }}
+          className="flex h-10 w-10 items-center justify-center rounded-lg text-white"
+          style={{ background: "var(--primary)" }}
         >
-          <Building2 size={20} strokeWidth={2.2} />
+          <Building2 size={20} strokeWidth={2} />
         </span>
         <div>
           <div className="text-base font-extrabold tracking-tight">VenueOS</div>

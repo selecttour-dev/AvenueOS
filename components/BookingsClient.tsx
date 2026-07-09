@@ -8,8 +8,7 @@ import {
   deleteBooking,
   addPayment,
 } from "@/lib/actions";
-import type { BookingRow } from "@/lib/queries";
-import { bookingTotal } from "@/lib/queries";
+import { bookingTotal, type BookingRow } from "@/lib/booking-shared";
 import { gel, fmtDate, todayISO } from "@/lib/format";
 import {
   PageHeader,

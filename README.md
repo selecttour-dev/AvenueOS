@@ -9,7 +9,7 @@
 createdb venue_os        # თუ არ არსებობს
 npm install
 npm run db:push          # სქემის ასახვა ბაზაში
-npm run dev              # http://localhost:4400
+npm run dev              # http://localhost:4410
 ```
 
 `.env`:
@@ -28,6 +28,6 @@ DATABASE_URL=postgres://bekagogava@localhost:5432/venue_os
 
 ## სკრიპტები
 
-- `npm run dev` / `npm run build` / `npm start` — პორტი 4400
+- `npm run dev` / `npm run build` / `npm start` — პორტი 4410
 - `npm run db:push` — სქემის ცვლილებების ასახვა
 - `npm run db:studio` — Drizzle Studio (ბაზის GUI)

@@ -1,32 +1,10 @@
-import { and, asc, desc, eq, gte, lte, sql, sum } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "./db";
 import { bookings, clients, ledger, payments } from "@/db/schema";
 import { todayISO } from "./format";
+import { bookingTotal, type BookingRow } from "./booking-shared";
 
-export type BookingRow = {
-  id: number;
-  title: string;
-  eventType: string;
-  eventDate: string;
-  guestCount: number;
-  pricePerGuest: number;
-  extraCharges: number;
-  discount: number;
-  status: string;
-  notes: string | null;
-  clientName: string | null;
-  clientPhone: string | null;
-  paidTotal: number;
-};
-
-export function bookingTotal(b: {
-  guestCount: number;
-  pricePerGuest: number;
-  extraCharges: number;
-  discount: number;
-}): number {
-  return b.guestCount * b.pricePerGuest + b.extraCharges - b.discount;
-}
+export { bookingTotal, type BookingRow };
 
 export async function getBookings(venueId: number): Promise<BookingRow[]> {
   const rows = await db

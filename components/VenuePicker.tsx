@@ -16,19 +16,13 @@ export default function VenuePicker({ venues }: { venues: Venue[] }) {
   return (
     <main
       className="flex min-h-screen flex-col items-center justify-center px-6 py-12"
-      style={{
-        background:
-          "radial-gradient(1200px 600px at 50% -10%, rgb(109 94 252 / 0.10), transparent), var(--bg)",
-      }}
+      style={{ background: "var(--bg)" }}
     >
       <span
-        className="flex h-16 w-16 items-center justify-center rounded-2xl text-white"
-        style={{
-          background: "linear-gradient(135deg, var(--primary) 0%, #9b8cff 100%)",
-          boxShadow: "0 12px 32px -8px rgb(109 94 252 / 0.55)",
-        }}
+        className="flex h-14 w-14 items-center justify-center rounded-xl text-white"
+        style={{ background: "var(--primary)" }}
       >
-        <Building2 size={30} strokeWidth={2} />
+        <Building2 size={26} strokeWidth={2} />
       </span>
       <h1 className="mt-6 text-3xl font-extrabold tracking-tight">VenueOS</h1>
       <p className="mt-2 text-sm" style={{ color: "var(--text-2)" }}>

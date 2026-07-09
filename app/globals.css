@@ -1,30 +1,30 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f6f7fb;
+  --bg: #f5f4f0;
   --surface: #ffffff;
-  --surface-2: #fafafd;
-  --border: #e7e8f0;
-  --border-strong: #d8dae6;
-  --text: #17182b;
-  --text-2: #5b5e78;
-  --text-3: #9a9dbb;
-  --primary: #6d5efc;
-  --primary-soft: #efedff;
-  --primary-strong: #5847e8;
-  --gold: #c9a227;
-  --gold-soft: #faf3dd;
-  --green: #16a34a;
-  --green-soft: #e9f9ef;
-  --red: #dc2626;
-  --red-soft: #fdeaea;
-  --amber: #d97706;
-  --amber-soft: #fdf3e3;
-  --blue: #2563eb;
-  --blue-soft: #e8f0fe;
-  --shadow-sm: 0 1px 2px rgb(23 24 43 / 0.05);
-  --shadow-md: 0 6px 24px -8px rgb(23 24 43 / 0.12);
-  --radius: 16px;
+  --surface-2: #f8f7f3;
+  --border: #e6e3da;
+  --border-strong: #d3cfc2;
+  --text: #23221c;
+  --text-2: #6b675c;
+  --text-3: #a09b8c;
+  --primary: #2d5a3d;
+  --primary-soft: #eaefe9;
+  --primary-strong: #224731;
+  --gold: #967c3a;
+  --gold-soft: #f3eedd;
+  --green: #2f7d46;
+  --green-soft: #e9f1e9;
+  --red: #ab3a31;
+  --red-soft: #f6e9e6;
+  --amber: #a87428;
+  --amber-soft: #f5ecda;
+  --blue: #3c5f80;
+  --blue-soft: #e9eef3;
+  --shadow-sm: 0 1px 2px rgb(35 34 28 / 0.04);
+  --shadow-md: 0 4px 16px -6px rgb(35 34 28 / 0.1);
+  --radius: 12px;
 }
 
 * {
@@ -61,7 +61,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 12px;
+  border-radius: 9px;
   font-size: 0.875rem;
   font-weight: 600;
   padding: 0.55rem 1rem;
@@ -79,7 +79,6 @@ body {
 .btn-primary {
   background: var(--primary);
   color: #fff;
-  box-shadow: 0 4px 14px -4px rgb(109 94 252 / 0.5);
 }
 .btn-primary:hover {
   background: var(--primary-strong);
@@ -110,7 +109,7 @@ body {
   width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 9px;
   padding: 0.55rem 0.85rem;
   font-size: 0.875rem;
   color: var(--text);
@@ -121,7 +120,7 @@ body {
 .textarea:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgb(109 94 252 / 0.15);
+  box-shadow: 0 0 0 3px rgb(45 90 61 / 0.12);
 }
 .input::placeholder,
 .textarea::placeholder {
@@ -189,7 +188,7 @@ body {
   align-items: center;
   gap: 0.7rem;
   padding: 0.6rem 0.85rem;
-  border-radius: 12px;
+  border-radius: 9px;
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--text-2);
