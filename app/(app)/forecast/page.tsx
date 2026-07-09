@@ -1,20 +1,12 @@
-import { TrendingUp } from "lucide-react";
-import ModuleStub from "@/components/ModuleStub";
+import { getActiveVenueId } from "@/lib/venue";
+import { getForecastData } from "@/lib/queries";
+import ForecastClient from "@/components/ForecastClient";
 
-export default function ForecastPage() {
-  return (
-    <ModuleStub
-      icon={TrendingUp}
-      title="პროგნოზები"
-      subtitle="ბიზნეს-მოდელი, what-if სცენარები, break-even"
-      description="ინტერაქტიული მოდელი: შეცვალე ფასი, სტუმრების რაოდენობა ან ხარჯები და მაშინვე ნახე გავლენა წლიურ მოგებაზე."
-      features={[
-        "12-თვიანი პროგნოზი სეზონურობის გათვალისწინებით",
-        "What-if სლაიდერები (ფასი, ივენთი/თვე, სტუმრები, ხარჯები)",
-        "Break-even წერტილი — რამდენი ივენთი სჭირდება ნულს",
-        "სენსიტიურობის ანალიზი — რომელი ბერკეტი ცვლის ყველაზე მეტს",
-        "მიზნობრივი მოგების კალკულატორი და payback პერიოდი",
-      ]}
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function ForecastPage() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return null;
+  const data = await getForecastData(venueId);
+  return <ForecastClient data={data} />;
 }

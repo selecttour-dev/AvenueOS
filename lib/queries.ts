@@ -13,8 +13,10 @@ import {
   inventoryItems,
   ledger,
   payments,
+  settings,
   staff,
 } from "@/db/schema";
+import { PARAM_KEYS, type ModelParams } from "./forecast-shared";
 import { todayISO } from "./format";
 import { bookingTotal, type BookingRow } from "./booking-shared";
 import type {
@@ -522,6 +524,88 @@ export async function getMonthSummary(
       .sort((a, b) => b.total - a.total),
     closedDays: closes.length,
     daysInMonth,
+  };
+}
+
+// ---------- forecast / business model ----------
+
+export type ForecastData = {
+  params: ModelParams;
+  monthlyFixed: number;
+  hasSavedParams: boolean;
+  suggestions: {
+    avgGuests: number | null;
+    avgPrice: number | null;
+    bookingsCount: number;
+    avgFoodCostPerGuest: number | null;
+  };
+};
+
+export async function getForecastData(venueId: number): Promise<ForecastData> {
+  const [settingRows, fixedRows, bookingAgg, dishCosts] = await Promise.all([
+    db.select().from(settings).where(eq(settings.venueId, venueId)),
+    db
+      .select({
+        total: sql<number>`coalesce(sum(${fixedCosts.monthlyAmount}), 0)::float`,
+      })
+      .from(fixedCosts)
+      .where(and(eq(fixedCosts.venueId, venueId), eq(fixedCosts.active, true))),
+    db
+      .select({
+        avgGuests: sql<number>`avg(${bookings.guestCount})::float`,
+        avgPrice: sql<number>`avg(nullif(${bookings.pricePerGuest}, 0))::float`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.venueId, venueId),
+          sql`${bookings.status} <> 'cancelled'`,
+        ),
+      ),
+    // per-dish recipe cost, averaged in JS as a rough food-cost proxy
+    db
+      .select({
+        cost: sql<number>`coalesce(sum(${dishIngredients.qty} / 1000.0 * ${ingredients.pricePerUnit} * (1 + ${ingredients.wastePct} / 100.0)), 0)::float`,
+      })
+      .from(dishIngredients)
+      .innerJoin(dishes, eq(dishes.id, dishIngredients.dishId))
+      .innerJoin(ingredients, eq(ingredients.id, dishIngredients.ingredientId))
+      .where(eq(dishes.venueId, venueId))
+      .groupBy(dishIngredients.dishId),
+  ]);
+
+  const map = new Map(settingRows.map((s) => [s.key, s.value]));
+  const hasSavedParams = PARAM_KEYS.some((k) => map.has(k));
+
+  const avgDishCost = dishCosts.length
+    ? dishCosts.reduce((s, d) => s + d.cost, 0) / dishCosts.length
+    : null;
+
+  const agg = bookingAgg[0];
+  const suggestions = {
+    avgGuests: agg?.avgGuests ? Math.round(agg.avgGuests) : null,
+    avgPrice: agg?.avgPrice ? Math.round(agg.avgPrice) : null,
+    bookingsCount: agg?.count ?? 0,
+    avgFoodCostPerGuest: avgDishCost != null ? Math.round(avgDishCost) : null,
+  };
+
+  const num = (k: keyof ModelParams, def: number) =>
+    map.has(k) ? Number(map.get(k)) : def;
+
+  const params: ModelParams = {
+    eventsPerMonth: num("eventsPerMonth", 4),
+    avgGuests: num("avgGuests", suggestions.avgGuests ?? 150),
+    pricePerGuest: num("pricePerGuest", suggestions.avgPrice ?? 80),
+    foodCostPerGuest: num("foodCostPerGuest", suggestions.avgFoodCostPerGuest ?? 25),
+    serviceCostPerEvent: num("serviceCostPerEvent", 0),
+  };
+
+  return {
+    params,
+    monthlyFixed: fixedRows[0]?.total ?? 0,
+    hasSavedParams,
+    suggestions,
   };
 }
 

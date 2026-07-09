@@ -565,6 +565,27 @@ export async function reopenDay(entryDate: string) {
   revalidatePath("/");
 }
 
+// ---------- forecast / business-model params ----------
+
+export async function saveModelParams(params: Record<string, number>) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+
+  for (const [key, value] of Object.entries(params)) {
+    await db
+      .insert(settings)
+      .values({ venueId, key, value: String(value) })
+      .onConflictDoUpdate({
+        target: [settings.venueId, settings.key],
+        set: { value: String(value) },
+      });
+  }
+
+  revalidatePath("/forecast");
+  revalidatePath("/");
+  return { ok: true };
+}
+
 // ---------- fixed costs ----------
 
 export async function createFixedCost(input: {
