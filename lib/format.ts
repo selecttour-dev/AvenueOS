@@ -1,11 +1,19 @@
+// Manual formatting: toLocaleString gives different decimal separators on
+// server vs browser ICU → hydration mismatch. Always "1,234.56" style.
 export function gel(n: number | null | undefined, digits = 0): string {
   const v = n ?? 0;
-  return (
-    v.toLocaleString("ka-GE", {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: Math.max(digits, 2),
-    }) + " ₾"
-  );
+  const maxDigits = Math.max(digits, 2);
+  let s = Math.abs(v).toFixed(maxDigits);
+  if (digits < maxDigits) {
+    // trim trailing zeros beyond the required minimum
+    s = s.replace(/0+$/, "").replace(/\.$/, "");
+    const dec = s.split(".")[1]?.length ?? 0;
+    if (dec < digits) s = Number(s).toFixed(digits);
+  }
+  const [int, dec] = s.split(".");
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const sign = v < 0 ? "-" : "";
+  return `${sign}${grouped}${dec ? "." + dec : ""} ₾`;
 }
 
 const MONTHS_KA = [
