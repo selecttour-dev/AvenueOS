@@ -3,12 +3,13 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "./db";
 import { VENUE_COOKIE, getActiveVenueId } from "./venue";
 import {
   bookings,
   clients,
+  dayCloses,
   dishCategories,
   dishes,
   dishIngredients,
@@ -350,6 +351,218 @@ export async function duplicateVenueData(targetVenueId: number) {
 
   revalidatePath("/", "layout");
   return { ok: true, counts, targetName: target.name };
+}
+
+// ---------- daily register ----------
+
+export async function addLedgerEntry(input: {
+  entryDate: string;
+  type: string;
+  category?: string;
+  amount: number;
+  qty?: number;
+  staffId?: number | null;
+  bookingId?: number | null;
+  note?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
+  if (!input.entryDate) return { error: "თარიღი აუცილებელია" };
+
+  await db.insert(ledger).values({
+    venueId,
+    entryDate: input.entryDate,
+    type: input.type as typeof ledger.$inferInsert.type,
+    category: input.category?.trim() || null,
+    amount: input.amount,
+    qty: input.qty && input.qty > 0 ? input.qty : 1,
+    staffId: input.staffId ?? null,
+    bookingId: input.bookingId ?? null,
+    note: input.note?.trim() || null,
+  });
+
+  revalidatePath("/register");
+  if (input.bookingId) revalidatePath(`/bookings/${input.bookingId}`);
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function deleteLedgerEntry(id: number) {
+  await db.delete(ledger).where(eq(ledger.id, id));
+  revalidatePath("/register");
+  revalidatePath("/");
+}
+
+/** Log a shift wage for every active staff member on the given date,
+ *  skipping anyone who already has a wage entry that day. */
+export async function logAllStaffShift(entryDate: string) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !entryDate) return { error: "ობიექტი/თარიღი აუცილებელია" };
+
+  const activeStaff = await db
+    .select()
+    .from(staff)
+    .where(and(eq(staff.venueId, venueId), eq(staff.active, true)));
+
+  const existing = await db
+    .select({ staffId: ledger.staffId })
+    .from(ledger)
+    .where(
+      and(
+        eq(ledger.venueId, venueId),
+        eq(ledger.entryDate, entryDate),
+        eq(ledger.type, "wage"),
+      ),
+    );
+  const already = new Set(existing.map((e) => e.staffId));
+
+  let added = 0;
+  for (const s of activeStaff) {
+    if (already.has(s.id) || s.dailyRate <= 0) continue;
+    await db.insert(ledger).values({
+      venueId,
+      entryDate,
+      type: "wage",
+      category: "ხელფასი",
+      staffId: s.id,
+      amount: s.dailyRate,
+      qty: 1,
+    });
+    added++;
+  }
+
+  revalidatePath("/register");
+  revalidatePath("/");
+  return { ok: true, added };
+}
+
+export async function createStaff(input: {
+  name: string;
+  role?: string;
+  phone?: string;
+  dailyRate: number;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !input.name.trim()) return;
+  await db.insert(staff).values({
+    venueId,
+    name: input.name.trim(),
+    role: input.role?.trim() || null,
+    phone: input.phone?.trim() || null,
+    dailyRate: input.dailyRate || 0,
+  });
+  revalidatePath("/register");
+}
+
+export async function updateStaff(
+  id: number,
+  input: {
+    name?: string;
+    role?: string | null;
+    phone?: string | null;
+    dailyRate?: number;
+    active?: boolean;
+  },
+) {
+  await db
+    .update(staff)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.role !== undefined ? { role: input.role?.trim() || null } : {}),
+      ...(input.phone !== undefined
+        ? { phone: input.phone?.trim() || null }
+        : {}),
+      ...(input.dailyRate !== undefined ? { dailyRate: input.dailyRate } : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+    })
+    .where(eq(staff.id, id));
+  revalidatePath("/register");
+}
+
+export async function deleteStaff(id: number) {
+  await db.delete(staff).where(eq(staff.id, id));
+  revalidatePath("/register");
+}
+
+/** Close (or recompute) a day: authoritative totals from the ledger,
+ *  opening carried from the prior close. Upserts on (venue, date). */
+export async function closeDay(entryDate: string, countedCash?: number | null) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !entryDate) return { error: "ობიექტი/თარიღი აუცილებელია" };
+
+  const rows = await db
+    .select({ type: ledger.type, amount: ledger.amount, qty: ledger.qty })
+    .from(ledger)
+    .where(and(eq(ledger.venueId, venueId), eq(ledger.entryDate, entryDate)));
+
+  let income = 0;
+  let wages = 0;
+  let expenses = 0;
+  for (const r of rows) {
+    const t = r.amount * r.qty;
+    if (r.type === "income") income += t;
+    else if (r.type === "wage") wages += t;
+    else expenses += t;
+  }
+  const net = income - wages - expenses;
+
+  const [prior] = await db
+    .select()
+    .from(dayCloses)
+    .where(
+      and(eq(dayCloses.venueId, venueId), lt(dayCloses.closeDate, entryDate)),
+    )
+    .orderBy(desc(dayCloses.closeDate))
+    .limit(1);
+  const openingBalance = prior ? (prior.countedCash ?? prior.expectedCash) : 0;
+  const expectedCash = openingBalance + net;
+  const counted = countedCash ?? null;
+  const difference = counted != null ? counted - expectedCash : null;
+
+  await db
+    .insert(dayCloses)
+    .values({
+      venueId,
+      closeDate: entryDate,
+      openingBalance,
+      income,
+      wages,
+      expenses,
+      net,
+      expectedCash,
+      countedCash: counted,
+      difference,
+    })
+    .onConflictDoUpdate({
+      target: [dayCloses.venueId, dayCloses.closeDate],
+      set: {
+        openingBalance,
+        income,
+        wages,
+        expenses,
+        net,
+        expectedCash,
+        countedCash: counted,
+        difference,
+      },
+    });
+
+  revalidatePath("/register");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function reopenDay(entryDate: string) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .delete(dayCloses)
+    .where(
+      and(eq(dayCloses.venueId, venueId), eq(dayCloses.closeDate, entryDate)),
+    );
+  revalidatePath("/register");
+  revalidatePath("/");
 }
 
 // ---------- fixed costs ----------

@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   bookings,
   clients,
+  dayCloses,
   dishCategories,
   dishes,
   dishIngredients,
@@ -249,6 +250,278 @@ export async function getBookingDetail(
       note: e.note,
       staffName: e.staffName,
     })),
+  };
+}
+
+// ---------- daily register ----------
+
+export type LedgerEntry = {
+  id: number;
+  entryDate: string;
+  type: string;
+  category: string | null;
+  amount: number;
+  qty: number;
+  note: string | null;
+  staffId: number | null;
+  staffName: string | null;
+  bookingId: number | null;
+  bookingTitle: string | null;
+};
+
+export type StaffMember = {
+  id: number;
+  name: string;
+  role: string | null;
+  phone: string | null;
+  dailyRate: number;
+  active: boolean;
+};
+
+export type DayCloseRow = {
+  closeDate: string;
+  openingBalance: number;
+  income: number;
+  wages: number;
+  expenses: number;
+  net: number;
+  expectedCash: number;
+  countedCash: number | null;
+  difference: number | null;
+  notes: string | null;
+};
+
+export type RegisterDay = {
+  date: string;
+  entries: LedgerEntry[];
+  income: number;
+  wages: number;
+  expenses: number;
+  net: number;
+  openingBalance: number;
+  expectedCash: number;
+  close: DayCloseRow | null;
+  staff: StaffMember[];
+  bookings: { id: number; title: string; eventDate: string }[];
+};
+
+export const entryTotal = (e: { amount: number; qty: number }) =>
+  e.amount * e.qty;
+
+export async function getStaff(venueId: number): Promise<StaffMember[]> {
+  const rows = await db
+    .select()
+    .from(staff)
+    .where(eq(staff.venueId, venueId))
+    .orderBy(desc(staff.active), asc(staff.name));
+  return rows.map((s) => ({
+    id: s.id,
+    name: s.name,
+    role: s.role,
+    phone: s.phone,
+    dailyRate: s.dailyRate,
+    active: s.active,
+  }));
+}
+
+async function openingBalanceFor(
+  venueId: number,
+  date: string,
+): Promise<number> {
+  const [prior] = await db
+    .select()
+    .from(dayCloses)
+    .where(and(eq(dayCloses.venueId, venueId), lt(dayCloses.closeDate, date)))
+    .orderBy(desc(dayCloses.closeDate))
+    .limit(1);
+  if (!prior) return 0;
+  return prior.countedCash ?? prior.expectedCash;
+}
+
+export async function getRegisterDay(
+  venueId: number,
+  date: string,
+): Promise<RegisterDay> {
+  const [entryRows, staffList, closeRows, bookingRows, opening] =
+    await Promise.all([
+      db
+        .select({
+          id: ledger.id,
+          entryDate: ledger.entryDate,
+          type: ledger.type,
+          category: ledger.category,
+          amount: ledger.amount,
+          qty: ledger.qty,
+          note: ledger.note,
+          staffId: ledger.staffId,
+          staffName: staff.name,
+          bookingId: ledger.bookingId,
+          bookingTitle: bookings.title,
+        })
+        .from(ledger)
+        .leftJoin(staff, eq(ledger.staffId, staff.id))
+        .leftJoin(bookings, eq(ledger.bookingId, bookings.id))
+        .where(and(eq(ledger.venueId, venueId), eq(ledger.entryDate, date)))
+        .orderBy(desc(ledger.id)),
+      getStaff(venueId),
+      db
+        .select()
+        .from(dayCloses)
+        .where(
+          and(eq(dayCloses.venueId, venueId), eq(dayCloses.closeDate, date)),
+        )
+        .limit(1),
+      db
+        .select({
+          id: bookings.id,
+          title: bookings.title,
+          eventDate: bookings.eventDate,
+        })
+        .from(bookings)
+        .where(eq(bookings.venueId, venueId))
+        .orderBy(desc(bookings.eventDate))
+        .limit(200),
+      openingBalanceFor(venueId, date),
+    ]);
+
+  let income = 0;
+  let wages = 0;
+  let expenses = 0;
+  for (const e of entryRows) {
+    const t = entryTotal(e);
+    if (e.type === "income") income += t;
+    else if (e.type === "wage") wages += t;
+    else expenses += t;
+  }
+  const net = income - wages - expenses;
+  const expectedCash = opening + net;
+  const existing = closeRows[0];
+
+  return {
+    date,
+    entries: entryRows,
+    income,
+    wages,
+    expenses,
+    net,
+    openingBalance: opening,
+    expectedCash,
+    staff: staffList,
+    bookings: bookingRows,
+    close: existing
+      ? {
+          closeDate: existing.closeDate,
+          openingBalance: existing.openingBalance,
+          income: existing.income,
+          wages: existing.wages,
+          expenses: existing.expenses,
+          net: existing.net,
+          expectedCash: existing.expectedCash,
+          countedCash: existing.countedCash,
+          difference: existing.difference,
+          notes: existing.notes,
+        }
+      : null,
+  };
+}
+
+export type MonthSummary = {
+  income: number;
+  wages: number;
+  expenses: number;
+  net: number;
+  dailyNet: { day: number; net: number }[];
+  wagesByStaff: { name: string; total: number }[];
+  expensesByCategory: { category: string; total: number }[];
+  closedDays: number;
+  daysInMonth: number;
+};
+
+export async function getMonthSummary(
+  venueId: number,
+  year: number,
+  month: number,
+): Promise<MonthSummary> {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const start = `${year}-${pad(month)}-01`;
+  const end = `${year}-${pad(month)}-${pad(daysInMonth)}`;
+
+  const [rows, closes] = await Promise.all([
+    db
+      .select({
+        entryDate: ledger.entryDate,
+        type: ledger.type,
+        category: ledger.category,
+        amount: ledger.amount,
+        qty: ledger.qty,
+        staffName: staff.name,
+      })
+      .from(ledger)
+      .leftJoin(staff, eq(ledger.staffId, staff.id))
+      .where(
+        and(
+          eq(ledger.venueId, venueId),
+          gte(ledger.entryDate, start),
+          lte(ledger.entryDate, end),
+        ),
+      ),
+    db
+      .select({ closeDate: dayCloses.closeDate })
+      .from(dayCloses)
+      .where(
+        and(
+          eq(dayCloses.venueId, venueId),
+          gte(dayCloses.closeDate, start),
+          lte(dayCloses.closeDate, end),
+        ),
+      ),
+  ]);
+
+  let income = 0;
+  let wages = 0;
+  let expenses = 0;
+  const dailyNet = Array.from({ length: daysInMonth }, (_, i) => ({
+    day: i + 1,
+    net: 0,
+  }));
+  const wagesByStaff = new Map<string, number>();
+  const expensesByCategory = new Map<string, number>();
+
+  for (const r of rows) {
+    const t = r.amount * r.qty;
+    const day = Number(r.entryDate.slice(8, 10));
+    const cell = dailyNet[day - 1];
+    if (r.type === "income") {
+      income += t;
+      if (cell) cell.net += t;
+    } else if (r.type === "wage") {
+      wages += t;
+      if (cell) cell.net -= t;
+      const name = r.staffName ?? "სხვა";
+      wagesByStaff.set(name, (wagesByStaff.get(name) ?? 0) + t);
+    } else {
+      expenses += t;
+      if (cell) cell.net -= t;
+      const cat = r.category ?? "სხვა";
+      expensesByCategory.set(cat, (expensesByCategory.get(cat) ?? 0) + t);
+    }
+  }
+
+  return {
+    income,
+    wages,
+    expenses,
+    net: income - wages - expenses,
+    dailyNet,
+    wagesByStaff: [...wagesByStaff.entries()]
+      .map(([name, total]) => ({ name, total }))
+      .sort((a, b) => b.total - a.total),
+    expensesByCategory: [...expensesByCategory.entries()]
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total),
+    closedDays: closes.length,
+    daysInMonth,
   };
 }
 
