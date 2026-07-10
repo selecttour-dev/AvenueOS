@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -20,13 +20,16 @@ import {
   X,
 } from "lucide-react";
 import {
+  addBookingDish,
   addBookingLedgerEntry,
   addPayment,
   deleteBooking,
+  deleteBookingDish,
   deleteBookingLedgerEntry,
   deletePayment,
   setBookingPackage,
   updateBooking,
+  updateBookingDish,
   updateBookingStatus,
 } from "@/lib/actions";
 import {
@@ -37,7 +40,10 @@ import {
   STATUS_ORDER,
 } from "@/lib/booking-shared";
 import {
+  dishCost,
   inventoryNeeds,
+  menuCostPerGuest,
+  menuOrder,
   packageCostPerGuest,
   packageOrder,
   type InventoryItem,
@@ -163,7 +169,7 @@ export default function BookingDetailClient({
       </div>
 
       <div className="mt-6">
-        <PackagePanel
+        <MenuPanel
           booking={booking}
           packages={packages}
           dishes={dishes}
@@ -175,9 +181,9 @@ export default function BookingDetailClient({
   );
 }
 
-// ---------------- Menu package + inventory needs ----------------
+// ---------------- Event menu (custom / package) + inventory needs ----------------
 
-function PackagePanel({
+function MenuPanel({
   booking,
   packages,
   dishes,
@@ -190,19 +196,22 @@ function PackagePanel({
   ingredients: MenuIngredient[];
   inventoryItems: InventoryItem[];
 }) {
-  const [pending, startTransition] = useTransition();
-  const dishesById = new Map(dishes.map((d) => [d.id, d]));
-  const ingredientsById = new Map(ingredients.map((i) => [i.id, i]));
+  const dishesById = useMemo(() => new Map(dishes.map((d) => [d.id, d])), [dishes]);
+  const ingredientsById = useMemo(
+    () => new Map(ingredients.map((i) => [i.id, i])),
+    [ingredients],
+  );
+  const [mode, setMode] = useState<"custom" | "package">(
+    booking.packageId ? "package" : "custom",
+  );
 
-  const pkg = packages.find((p) => p.id === booking.packageId) ?? null;
-
-  if (packages.length === 0) {
+  if (dishes.length === 0) {
     return (
-      <Section title="მენიუ / პაკეტი">
+      <Section title="ივენთის მენიუ">
         <EmptyState
           icon={UtensilsCrossed}
-          title="პაკეტები ჯერ არ არის"
-          text="შექმენი მენიუ-პაკეტი „კალკულაციებში“ (კერძებით) — მერე მიაბამ ამ ივენთს და ავტომატურად დაითვლება მენიუს ღირებულება და საჭირო ინვენტარი."
+          title="ჯერ კერძები დაამატე"
+          text="მენიუ კერძებისგან იწყობა. „კალკულაციებში“ დაამატე კერძები რეცეპტებით — მერე აქ სწრაფად შეადგენ ივენთის მენიუს."
           action={
             <Link href="/calc" className="btn btn-ghost">
               კალკულაციები
@@ -213,53 +222,274 @@ function PackagePanel({
     );
   }
 
-  const costPerGuest = pkg
-    ? packageCostPerGuest(pkg, dishesById, ingredientsById)
-    : 0;
-  const menuCost = costPerGuest * booking.guestCount;
-  const menuRevenue = pkg ? pkg.pricePerGuest * booking.guestCount : 0;
-
-  const needs = pkg
-    ? inventoryNeeds(
-        packageOrder(pkg, dishesById, booking.guestCount),
-        inventoryItems,
-      )
-    : [];
-  const missing = needs.filter((n) => n.missing > 0);
-
   return (
     <Section
-      title="მენიუ / პაკეტი"
+      title="ივენთის მენიუ"
       action={
-        <div className="flex items-center gap-2">
+        <div className="flex rounded-lg p-1" style={{ background: "var(--surface-2)" }}>
+          {(["custom", "package"] as const).map((m) => (
+            <button
+              key={m}
+              className="rounded-md px-3 py-1 text-sm font-semibold transition-colors"
+              style={
+                mode === m
+                  ? { background: "var(--surface)", color: "var(--text)", boxShadow: "var(--shadow-sm)" }
+                  : { background: "transparent", color: "var(--text-2)" }
+              }
+              onClick={() => setMode(m)}
+            >
+              {m === "custom" ? "ინდივიდუალური" : "პაკეტი"}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {mode === "custom" ? (
+        <CustomMenu
+          booking={booking}
+          dishes={dishes}
+          dishesById={dishesById}
+          ingredientsById={ingredientsById}
+          inventoryItems={inventoryItems}
+        />
+      ) : (
+        <PackageMenu
+          booking={booking}
+          packages={packages}
+          dishesById={dishesById}
+          ingredientsById={ingredientsById}
+          inventoryItems={inventoryItems}
+        />
+      )}
+    </Section>
+  );
+}
+
+function CustomMenu({
+  booking,
+  dishes,
+  dishesById,
+  ingredientsById,
+  inventoryItems,
+}: {
+  booking: BookingDetail;
+  dishes: MenuDish[];
+  dishesById: Map<number, MenuDish>;
+  ingredientsById: Map<number, MenuIngredient>;
+  inventoryItems: InventoryItem[];
+}) {
+  const [pending, startTransition] = useTransition();
+  const [pick, setPick] = useState("");
+
+  const lines = booking.menuDishes;
+  const costPerGuest = menuCostPerGuest(lines, dishesById, ingredientsById);
+  const menuCost = costPerGuest * booking.guestCount;
+  const needs = inventoryNeeds(
+    menuOrder(lines, dishesById, booking.guestCount),
+    inventoryItems,
+  );
+  const available = dishes.filter((d) => !lines.some((l) => l.dishId === d.id));
+
+  const quickAdd = (dishId: number) =>
+    startTransition(async () => {
+      await addBookingDish(booking.id, dishId, 1);
+      setPick("");
+    });
+
+  return (
+    <>
+      <p className="mb-3 text-xs" style={{ color: "var(--text-3)" }}>
+        დაამატე კერძები რაც კლიენტმა მოისურვა — ღირებულება და საჭირო ინვენტარი
+        ავტომ. დაითვლება {booking.guestCount} სტუმარზე.
+      </p>
+
+      {lines.length > 0 && (
+        <div className="table-wrap mb-4 -mx-1">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>კერძი</th>
+                <th>რაოდ. / სტუმარი</th>
+                <th>ღირ. / სტუმარი</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((l) => {
+                const dish = dishesById.get(l.dishId);
+                if (!dish) return null;
+                return (
+                  <CustomMenuRow
+                    key={l.id}
+                    line={l}
+                    dish={dish}
+                    bookingId={booking.id}
+                    ingredientsById={ingredientsById}
+                  />
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* fast add */}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-48 flex-1">
+          <label className="label">კერძის დამატება</label>
           <select
-            className="select !w-auto !py-1.5"
-            value={pkg?.id ?? ""}
+            className="select"
+            value={pick}
             disabled={pending}
-            onChange={(e) =>
-              startTransition(() =>
-                setBookingPackage(
-                  booking.id,
-                  e.target.value ? Number(e.target.value) : null,
-                ),
-              )
-            }
+            onChange={(e) => e.target.value && quickAdd(Number(e.target.value))}
           >
-            <option value="">— პაკეტის გარეშე —</option>
-            {packages.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
+            <option value="">
+              {available.length ? "— აირჩიე კერძი —" : "ყველა კერძი დამატებულია"}
+            </option>
+            {available.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name} ({gel(dishCost(d.lines, ingredientsById), 2)})
               </option>
             ))}
           </select>
         </div>
-      }
-    >
+      </div>
+
+      {lines.length === 0 ? (
+        <p className="mt-4 text-sm" style={{ color: "var(--text-3)" }}>
+          ჯერ კერძი არ დამატებულა.
+        </p>
+      ) : (
+        <>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <MiniBox
+              label={`მენიუს ღირ. (${booking.guestCount} სტ.)`}
+              value={gel(menuCost)}
+              sub={`${gel(costPerGuest, 2)} / სტუმარი`}
+              color="var(--gold)"
+            />
+            <MiniBox
+              label="ფასი vs ღირებულება"
+              value={booking.pricePerGuest ? gel(booking.pricePerGuest - costPerGuest, 2) : "—"}
+              sub={
+                booking.pricePerGuest
+                  ? `ფასი ${gel(booking.pricePerGuest, 2)} − მენიუ ${gel(costPerGuest, 2)} / სტ.`
+                  : "ჯავშნის ფასი მითითებული არაა"
+              }
+              color={booking.pricePerGuest - costPerGuest >= 0 ? "var(--green)" : "var(--red)"}
+            />
+          </div>
+          <InventoryNeeds needs={needs} />
+        </>
+      )}
+    </>
+  );
+}
+
+function CustomMenuRow({
+  line,
+  dish,
+  bookingId,
+  ingredientsById,
+}: {
+  line: { id: number; dishId: number; qtyPerGuest: number };
+  dish: MenuDish;
+  bookingId: number;
+  ingredientsById: Map<number, MenuIngredient>;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [qty, setQty] = useState(String(line.qtyPerGuest));
+  const perGuest = dishCost(dish.lines, ingredientsById) * line.qtyPerGuest;
+
+  return (
+    <tr>
+      <td className="font-semibold">{dish.name}</td>
+      <td>
+        <input
+          type="number"
+          className="input !w-24 !py-1.5"
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          onBlur={() => {
+            const v = Number(qty);
+            if (v > 0 && v !== line.qtyPerGuest)
+              startTransition(() => updateBookingDish(line.id, v));
+          }}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        />
+      </td>
+      <td className="font-bold">{gel(perGuest, 2)}</td>
+      <td>
+        <div className="flex justify-end">
+          <button
+            className="btn btn-ghost !px-2 !py-1.5"
+            disabled={pending}
+            onClick={() => startTransition(() => deleteBookingDish(line.id, bookingId))}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function PackageMenu({
+  booking,
+  packages,
+  dishesById,
+  ingredientsById,
+  inventoryItems,
+}: {
+  booking: BookingDetail;
+  packages: MenuPackage[];
+  dishesById: Map<number, MenuDish>;
+  ingredientsById: Map<number, MenuIngredient>;
+  inventoryItems: InventoryItem[];
+}) {
+  const [pending, startTransition] = useTransition();
+  const pkg = packages.find((p) => p.id === booking.packageId) ?? null;
+
+  if (packages.length === 0) {
+    return (
+      <EmptyState
+        icon={PackageIcon}
+        title="პაკეტები ჯერ არ არის"
+        text="შექმენი მზა პაკეტი „კალკულაციებში“ — მერე ერთი კლიკით მიაბამ ივენთს."
+        action={<Link href="/calc" className="btn btn-ghost">კალკულაციები</Link>}
+      />
+    );
+  }
+
+  const costPerGuest = pkg ? packageCostPerGuest(pkg, dishesById, ingredientsById) : 0;
+  const menuCost = costPerGuest * booking.guestCount;
+  const menuRevenue = pkg ? pkg.pricePerGuest * booking.guestCount : 0;
+  const needs = pkg
+    ? inventoryNeeds(packageOrder(pkg, dishesById, booking.guestCount), inventoryItems)
+    : [];
+
+  return (
+    <>
+      <select
+        className="select mb-4"
+        value={pkg?.id ?? ""}
+        disabled={pending}
+        onChange={(e) =>
+          startTransition(() =>
+            setBookingPackage(booking.id, e.target.value ? Number(e.target.value) : null),
+          )
+        }
+      >
+        <option value="">— პაკეტის გარეშე —</option>
+        {packages.map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+
       {!pkg ? (
         <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
           <PackageIcon size={16} style={{ color: "var(--text-3)" }} />
-          აირჩიე პაკეტი ზემოთ — დაითვლება მენიუს ღირებულება {booking.guestCount}{" "}
-          სტუმარზე და საჭირო ინვენტარი.
+          აირჩიე მზა პაკეტი ზემოთ.
         </div>
       ) : (
         <>
@@ -283,66 +513,71 @@ function PackagePanel({
               color={menuRevenue - menuCost >= 0 ? "var(--green)" : "var(--red)"}
             />
           </div>
-
-          <div className="mt-5">
-            <div className="mb-2 flex items-center gap-2 text-sm font-bold">
-              საჭირო ინვენტარი
-              {missing.length > 0 ? (
-                <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
-                  <AlertTriangle size={12} /> აკლია {missing.length}
-                </span>
-              ) : needs.length > 0 ? (
-                <span className="badge" style={{ background: "var(--green-soft)", color: "var(--green)" }}>
-                  <CheckCircle2 size={12} /> საკმარისია
-                </span>
-              ) : null}
-            </div>
-
-            {needs.length === 0 ? (
-              <p className="text-sm" style={{ color: "var(--text-3)" }}>
-                პაკეტის კერძებს ინვენტარი არ აქვთ მიბმული — „კალკულაციებში“ კერძის
-                ბარათზე მიუთითე (მაგ. ლობიანი → 1 თეფში).
-              </p>
-            ) : (
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>ინვენტარი</th>
-                      <th>საჭიროა</th>
-                      <th>მარაგშია</th>
-                      <th>აკლია</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {needs.map(({ item, required, missing: miss }) => (
-                      <tr key={item.id}>
-                        <td className="font-semibold">{item.name}</td>
-                        <td>
-                          {Math.round(required * 100) / 100} {item.unit}
-                        </td>
-                        <td>
-                          {item.quantity} {item.unit}
-                        </td>
-                        <td>
-                          {miss > 0 ? (
-                            <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
-                              {Math.round(miss * 100) / 100} {item.unit}
-                            </span>
-                          ) : (
-                            <span style={{ color: "var(--green)" }}>—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          <InventoryNeeds needs={needs} />
         </>
       )}
-    </Section>
+    </>
+  );
+}
+
+function InventoryNeeds({
+  needs,
+}: {
+  needs: { item: InventoryItem; required: number; missing: number }[];
+}) {
+  const missing = needs.filter((n) => n.missing > 0);
+  return (
+    <div className="mt-5">
+      <div className="mb-2 flex items-center gap-2 text-sm font-bold">
+        საჭირო ინვენტარი
+        {missing.length > 0 ? (
+          <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
+            <AlertTriangle size={12} /> აკლია {missing.length}
+          </span>
+        ) : needs.length > 0 ? (
+          <span className="badge" style={{ background: "var(--green-soft)", color: "var(--green)" }}>
+            <CheckCircle2 size={12} /> საკმარისია
+          </span>
+        ) : null}
+      </div>
+      {needs.length === 0 ? (
+        <p className="text-sm" style={{ color: "var(--text-3)" }}>
+          მენიუს კერძებს ინვენტარი არ აქვთ მიბმული — „კალკულაციებში“ კერძის ბარათზე
+          მიუთითე (მაგ. ლობიანი → 1 თეფში).
+        </p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>ინვენტარი</th>
+                <th>საჭიროა</th>
+                <th>მარაგშია</th>
+                <th>აკლია</th>
+              </tr>
+            </thead>
+            <tbody>
+              {needs.map(({ item, required, missing: miss }) => (
+                <tr key={item.id}>
+                  <td className="font-semibold">{item.name}</td>
+                  <td>{Math.round(required * 100) / 100} {item.unit}</td>
+                  <td>{item.quantity} {item.unit}</td>
+                  <td>
+                    {miss > 0 ? (
+                      <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
+                        {Math.round(miss * 100) / 100} {item.unit}
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--green)" }}>—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 

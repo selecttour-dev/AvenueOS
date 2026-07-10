@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
+  bookingDishes,
   bookings,
   clients,
   dayCloses,
@@ -215,6 +216,7 @@ export type BookingDetail = BookingRow & {
   endTime: string | null;
   clientId: number | null;
   packageId: number | null;
+  menuDishes: { id: number; dishId: number; qtyPerGuest: number }[];
   payments: BookingPayment[];
   expenses: BookingExpense[];
 };
@@ -248,7 +250,7 @@ export async function getBookingDetail(
     .where(and(eq(bookings.id, id), eq(bookings.venueId, venueId)));
   if (!b) return null;
 
-  const [pays, exps] = await Promise.all([
+  const [pays, exps, menu] = await Promise.all([
     db
       .select()
       .from(payments)
@@ -269,6 +271,7 @@ export async function getBookingDetail(
       .leftJoin(staff, eq(ledger.staffId, staff.id))
       .where(eq(ledger.bookingId, id))
       .orderBy(desc(ledger.entryDate), desc(ledger.id)),
+    db.select().from(bookingDishes).where(eq(bookingDishes.bookingId, id)),
   ]);
 
   const paidTotal = pays.reduce((s, p) => s + p.amount, 0);
@@ -292,6 +295,11 @@ export async function getBookingDetail(
       qty: e.qty,
       note: e.note,
       staffName: e.staffName,
+    })),
+    menuDishes: menu.map((m) => ({
+      id: m.id,
+      dishId: m.dishId,
+      qtyPerGuest: m.qtyPerGuest,
     })),
   };
 }

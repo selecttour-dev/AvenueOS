@@ -330,6 +330,24 @@ export const packageDishes = pgTable("package_dishes", {
     .default(1),
 });
 
+// Ad-hoc per-event menu (dishes chosen directly for one booking, no package)
+export const bookingDishes = pgTable("booking_dishes", {
+  id: serial("id").primaryKey(),
+  bookingId: integer("booking_id")
+    .notNull()
+    .references(() => bookings.id, { onDelete: "cascade" }),
+  dishId: integer("dish_id")
+    .notNull()
+    .references(() => dishes.id, { onDelete: "cascade" }),
+  qtyPerGuest: numeric("qty_per_guest", {
+    precision: 10,
+    scale: 3,
+    mode: "number",
+  })
+    .notNull()
+    .default(1),
+});
+
 // ---------- Inventory ----------
 
 export const inventoryItems = pgTable("inventory_items", {

@@ -7,6 +7,7 @@ import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "./db";
 import { VENUE_COOKIE, getActiveVenueId } from "./venue";
 import {
+  bookingDishes,
   bookings,
   clients,
   dayCloses,
@@ -643,6 +644,35 @@ export async function setBookingPackage(
     .where(eq(bookings.id, bookingId));
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/bookings");
+}
+
+// ---------- per-event custom menu ----------
+
+export async function addBookingDish(
+  bookingId: number,
+  dishId: number,
+  qtyPerGuest: number,
+) {
+  await db.insert(bookingDishes).values({
+    bookingId,
+    dishId,
+    qtyPerGuest: qtyPerGuest && qtyPerGuest > 0 ? qtyPerGuest : 1,
+  });
+  revalidatePath(`/bookings/${bookingId}`);
+}
+
+export async function updateBookingDish(lineId: number, qtyPerGuest: number) {
+  if (!qtyPerGuest || qtyPerGuest <= 0) return;
+  await db
+    .update(bookingDishes)
+    .set({ qtyPerGuest })
+    .where(eq(bookingDishes.id, lineId));
+  revalidatePath("/bookings", "layout");
+}
+
+export async function deleteBookingDish(lineId: number, bookingId: number) {
+  await db.delete(bookingDishes).where(eq(bookingDishes.id, lineId));
+  revalidatePath(`/bookings/${bookingId}`);
 }
 
 // ---------- forecast / business-model params ----------

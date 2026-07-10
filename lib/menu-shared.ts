@@ -55,33 +55,52 @@ export type MenuPackage = {
   dishes: PackageDishLine[];
 };
 
-/** Cost per guest of a package = Σ dishCost × portions/guest (recipe-driven);
- *  falls back to manualCostPerGuest when the package has no linked dishes. */
+export type MenuLine = { dishId: number; qtyPerGuest: number };
+
+/** Cost per guest of any list of dishes = Σ dishCost × portions/guest. */
+export function menuCostPerGuest(
+  lines: MenuLine[],
+  dishesById: Map<number, MenuDish>,
+  ingredientsById: Map<number, MenuIngredient>,
+): number {
+  return lines.reduce((sum, l) => {
+    const dish = dishesById.get(l.dishId);
+    if (!dish) return sum;
+    return sum + dishCost(dish.lines, ingredientsById) * l.qtyPerGuest;
+  }, 0);
+}
+
+/** Build a dish-portion order from menu lines for a given guest count. */
+export function menuOrder(
+  lines: MenuLine[],
+  dishesById: Map<number, MenuDish>,
+  guests: number,
+): { dish: MenuDish; portions: number }[] {
+  return lines
+    .map((l) => {
+      const dish = dishesById.get(l.dishId);
+      return dish ? { dish, portions: l.qtyPerGuest * guests } : null;
+    })
+    .filter((x): x is { dish: MenuDish; portions: number } => x !== null);
+}
+
+/** Cost per guest of a package (recipe-driven); falls back to
+ *  manualCostPerGuest when the package has no linked dishes. */
 export function packageCostPerGuest(
   pkg: MenuPackage,
   dishesById: Map<number, MenuDish>,
   ingredientsById: Map<number, MenuIngredient>,
 ): number {
   if (pkg.dishes.length === 0) return pkg.manualCostPerGuest ?? 0;
-  return pkg.dishes.reduce((sum, pd) => {
-    const dish = dishesById.get(pd.dishId);
-    if (!dish) return sum;
-    return sum + dishCost(dish.lines, ingredientsById) * pd.qtyPerGuest;
-  }, 0);
+  return menuCostPerGuest(pkg.dishes, dishesById, ingredientsById);
 }
 
-/** Build a dish-portion order from a package for a given guest count. */
 export function packageOrder(
   pkg: MenuPackage,
   dishesById: Map<number, MenuDish>,
   guests: number,
 ): { dish: MenuDish; portions: number }[] {
-  return pkg.dishes
-    .map((pd) => {
-      const dish = dishesById.get(pd.dishId);
-      return dish ? { dish, portions: pd.qtyPerGuest * guests } : null;
-    })
-    .filter((x): x is { dish: MenuDish; portions: number } => x !== null);
+  return menuOrder(pkg.dishes, dishesById, guests);
 }
 
 /** Inventory shortfall for an order: dish portions → required items vs stock. */
