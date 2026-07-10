@@ -16,7 +16,12 @@ import {
   settings,
   staff,
 } from "@/db/schema";
-import { PARAM_KEYS, type ModelParams } from "./forecast-shared";
+import {
+  PARAM_KEYS,
+  breakEvenEvents,
+  contributionPerEvent,
+  type ModelParams,
+} from "./forecast-shared";
 import { todayISO } from "./format";
 import { bookingTotal, type BookingRow } from "./booking-shared";
 import type {
@@ -611,41 +616,119 @@ export async function getForecastData(venueId: number): Promise<ForecastData> {
 
 export async function getDashboardStats(venueId: number) {
   const today = todayISO();
-  const monthStart = today.slice(0, 8) + "01";
+  const [y, m] = today.split("-").map(Number);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const monthStart = `${y}-${pad(m)}-01`;
+  const monthEnd = `${y}-${pad(m)}-${pad(daysInMonth)}`;
 
-  const all = await getBookings(venueId);
+  const [all, monthLedgerRows, closes, lowStockRows, forecast] =
+    await Promise.all([
+      getBookings(venueId),
+      db
+        .select({
+          entryDate: ledger.entryDate,
+          type: ledger.type,
+          amount: ledger.amount,
+          qty: ledger.qty,
+        })
+        .from(ledger)
+        .where(
+          and(
+            eq(ledger.venueId, venueId),
+            gte(ledger.entryDate, monthStart),
+            lte(ledger.entryDate, monthEnd),
+          ),
+        ),
+      db
+        .select({ closeDate: dayCloses.closeDate })
+        .from(dayCloses)
+        .where(
+          and(
+            eq(dayCloses.venueId, venueId),
+            gte(dayCloses.closeDate, monthStart),
+            lte(dayCloses.closeDate, monthEnd),
+          ),
+        ),
+      db
+        .select({ id: inventoryItems.id })
+        .from(inventoryItems)
+        .where(
+          and(
+            eq(inventoryItems.venueId, venueId),
+            sql`${inventoryItems.minQty} is not null and ${inventoryItems.quantity} < ${inventoryItems.minQty}`,
+          ),
+        ),
+      getForecastData(venueId),
+    ]);
+
   const active = all.filter((b) => b.status !== "cancelled");
   const upcoming = active
     .filter((b) => b.eventDate >= today && b.status !== "completed")
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+  const todayEvents = active.filter((b) => b.eventDate === today);
+  const monthEventsCount = active.filter(
+    (b) => b.eventDate >= monthStart && b.eventDate <= monthEnd,
+  ).length;
 
   const pipeline = upcoming.reduce((s, b) => s + bookingTotal(b), 0);
-  const outstanding = active.reduce(
-    (s, b) => s + Math.max(bookingTotal(b) - b.paidTotal, 0),
+  const withBalance = active.filter(
+    (b) => bookingTotal(b) - b.paidTotal > 0.01,
+  );
+  const outstanding = withBalance.reduce(
+    (s, b) => s + (bookingTotal(b) - b.paidTotal),
     0,
   );
 
-  const [monthLedger] = await db
-    .select({
-      income: sql<number>`coalesce(sum(case when ${ledger.type} = 'income' then ${ledger.amount} * ${ledger.qty} end), 0)::float`,
-      spent: sql<number>`coalesce(sum(case when ${ledger.type} in ('expense','wage') then ${ledger.amount} * ${ledger.qty} end), 0)::float`,
-    })
-    .from(ledger)
-    .where(
-      and(
-        eq(ledger.venueId, venueId),
-        gte(ledger.entryDate, monthStart),
-        lte(ledger.entryDate, today),
-      ),
-    );
+  // month cash flow + daily net
+  const dailyNet = Array.from({ length: daysInMonth }, (_, i) => ({
+    day: i + 1,
+    net: 0,
+  }));
+  let monthIncome = 0;
+  let monthSpent = 0;
+  let todayNet = 0;
+  const activeDates = new Set<string>();
+  for (const r of monthLedgerRows) {
+    const t = r.amount * r.qty;
+    const dayNum = Number(r.entryDate.slice(8, 10));
+    const cell = dailyNet[dayNum - 1];
+    const signed = r.type === "income" ? t : -t;
+    if (r.type === "income") monthIncome += t;
+    else monthSpent += t;
+    if (cell) cell.net += signed;
+    if (r.entryDate === today) todayNet += signed;
+    activeDates.add(r.entryDate);
+  }
+
+  const closedSet = new Set(closes.map((c) => c.closeDate));
+  const unclosedDaysCount = [...activeDates].filter(
+    (d) => d < today && !closedSet.has(d),
+  ).length;
+
+  const contribution = contributionPerEvent(forecast.params);
+  const breakEven = breakEvenEvents(forecast.params, forecast.monthlyFixed);
 
   return {
     upcoming: upcoming.slice(0, 6),
     upcomingCount: upcoming.length,
+    totalBookings: active.length,
+    todayEvents,
+    monthEventsCount,
     pipeline,
     outstanding,
-    monthIncome: monthLedger?.income ?? 0,
-    monthSpent: monthLedger?.spent ?? 0,
-    totalBookings: active.length,
+    outstandingCount: withBalance.length,
+    monthIncome,
+    monthSpent,
+    monthNet: monthIncome - monthSpent,
+    todayNet,
+    dailyNet,
+    today,
+    lowStockCount: lowStockRows.length,
+    unclosedDaysCount,
+    breakEven,
+    contribution,
+    monthlyFixed: forecast.monthlyFixed,
+    hasModel: forecast.hasSavedParams,
   };
 }
