@@ -57,7 +57,7 @@ export type MenuPackage = {
 
 export type MenuLine = { dishId: number; qtyPerGuest: number };
 
-/** Cost per guest of any list of dishes = Σ dishCost × portions/guest. */
+/** Cost per guest of a per-guest menu = Σ dishCost × qty/guest. */
 export function menuCostPerGuest(
   lines: MenuLine[],
   dishesById: Map<number, MenuDish>,
@@ -70,7 +70,7 @@ export function menuCostPerGuest(
   }, 0);
 }
 
-/** Build a dish-portion order from menu lines for a given guest count. */
+/** Per-guest menu → dish-portion order for a guest count. */
 export function menuOrder(
   lines: MenuLine[],
   dishesById: Map<number, MenuDish>,
@@ -80,6 +80,51 @@ export function menuOrder(
     .map((l) => {
       const dish = dishesById.get(l.dishId);
       return dish ? { dish, portions: l.qtyPerGuest * guests } : null;
+    })
+    .filter((x): x is { dish: MenuDish; portions: number } => x !== null);
+}
+
+// ---- booking custom menu: qty may be per-guest OR total for the event ----
+
+export type BookingMenuLine = {
+  dishId: number;
+  qty: number;
+  perGuest: boolean;
+};
+
+/** Total portions of a line for the event: per-guest × guests, or the flat total. */
+export function bookingLinePortions(
+  l: { qty: number; perGuest: boolean },
+  guests: number,
+): number {
+  return l.perGuest ? l.qty * guests : l.qty;
+}
+
+/** Total food cost of a booking's custom menu for the whole event. */
+export function bookingMenuTotalCost(
+  lines: BookingMenuLine[],
+  dishesById: Map<number, MenuDish>,
+  ingredientsById: Map<number, MenuIngredient>,
+  guests: number,
+): number {
+  return lines.reduce((sum, l) => {
+    const dish = dishesById.get(l.dishId);
+    if (!dish) return sum;
+    return (
+      sum + dishCost(dish.lines, ingredientsById) * bookingLinePortions(l, guests)
+    );
+  }, 0);
+}
+
+export function bookingMenuOrder(
+  lines: BookingMenuLine[],
+  dishesById: Map<number, MenuDish>,
+  guests: number,
+): { dish: MenuDish; portions: number }[] {
+  return lines
+    .map((l) => {
+      const dish = dishesById.get(l.dishId);
+      return dish ? { dish, portions: bookingLinePortions(l, guests) } : null;
     })
     .filter((x): x is { dish: MenuDish; portions: number } => x !== null);
 }

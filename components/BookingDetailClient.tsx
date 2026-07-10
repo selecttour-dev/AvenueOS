@@ -27,6 +27,7 @@ import {
   addBookingDish,
   addBookingLedgerEntry,
   addPayment,
+  applyPackageToBookingMenu,
   deleteBooking,
   deleteBookingDish,
   deleteBookingLedgerEntry,
@@ -44,10 +45,10 @@ import {
   STATUS_ORDER,
 } from "@/lib/booking-shared";
 import {
+  bookingMenuOrder,
+  bookingMenuTotalCost,
   dishCost,
   inventoryNeeds,
-  menuCostPerGuest,
-  menuOrder,
   packageCostPerGuest,
   packageOrder,
   type InventoryItem,
@@ -278,6 +279,7 @@ function MenuPanel({
           dishesById={dishesById}
           ingredientsById={ingredientsById}
           inventoryItems={inventoryItems}
+          onCustomized={() => setMode("custom")}
         />
       )}
     </Section>
@@ -309,10 +311,11 @@ function CustomMenu({
     () => new Map(lines.map((l) => [l.dishId, l])),
     [lines],
   );
-  const costPerGuest = menuCostPerGuest(lines, dishesById, ingredientsById);
-  const menuCost = costPerGuest * booking.guestCount;
+  const guests = booking.guestCount;
+  const menuCost = bookingMenuTotalCost(lines, dishesById, ingredientsById, guests);
+  const costPerGuest = guests > 0 ? menuCost / guests : 0;
   const needs = inventoryNeeds(
-    menuOrder(lines, dishesById, booking.guestCount),
+    bookingMenuOrder(lines, dishesById, guests),
     inventoryItems,
   );
 
@@ -412,8 +415,10 @@ function CustomMenu({
               <thead>
                 <tr>
                   <th>არჩეული კერძი</th>
-                  <th>რაოდ. / სტუმარი</th>
-                  <th>ღირ. / სტუმარი</th>
+                  <th>რაოდენობა</th>
+                  <th>ერთეული</th>
+                  <th>სულ პორცია</th>
+                  <th>ღირებულება</th>
                   <th></th>
                 </tr>
               </thead>
@@ -426,6 +431,7 @@ function CustomMenu({
                       key={l.id}
                       line={l}
                       dish={dish}
+                      guests={guests}
                       bookingId={booking.id}
                       ingredientsById={ingredientsById}
                     />
@@ -470,17 +476,21 @@ function CustomMenu({
 function CustomMenuRow({
   line,
   dish,
+  guests,
   bookingId,
   ingredientsById,
 }: {
-  line: { id: number; dishId: number; qtyPerGuest: number };
+  line: { id: number; dishId: number; qty: number; perGuest: boolean };
   dish: MenuDish;
+  guests: number;
   bookingId: number;
   ingredientsById: Map<number, MenuIngredient>;
 }) {
   const [pending, startTransition] = useTransition();
-  const [qty, setQty] = useState(String(line.qtyPerGuest));
-  const perGuest = dishCost(dish.lines, ingredientsById) * line.qtyPerGuest;
+  const [qty, setQty] = useState(String(line.qty));
+
+  const portions = line.perGuest ? line.qty * guests : line.qty;
+  const lineCost = dishCost(dish.lines, ingredientsById) * portions;
 
   return (
     <tr>
@@ -488,18 +498,34 @@ function CustomMenuRow({
       <td>
         <input
           type="number"
-          className="input !w-24 !py-1.5"
+          className="input !w-20 !py-1.5"
           value={qty}
           onChange={(e) => setQty(e.target.value)}
           onBlur={() => {
             const v = Number(qty);
-            if (v > 0 && v !== line.qtyPerGuest)
-              startTransition(() => updateBookingDish(line.id, v));
+            if (v > 0 && v !== line.qty)
+              startTransition(() => updateBookingDish(line.id, { qty: v }));
           }}
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
         />
       </td>
-      <td className="font-bold">{gel(perGuest, 2)}</td>
+      <td>
+        <select
+          className="select !w-auto !py-1.5"
+          value={line.perGuest ? "guest" : "total"}
+          disabled={pending}
+          onChange={(e) =>
+            startTransition(() =>
+              updateBookingDish(line.id, { perGuest: e.target.value === "guest" }),
+            )
+          }
+        >
+          <option value="guest">სტუმარზე</option>
+          <option value="total">სულ</option>
+        </select>
+      </td>
+      <td className="font-semibold">{Math.round(portions * 100) / 100}</td>
+      <td className="font-bold">{gel(lineCost, 2)}</td>
       <td>
         <div className="flex justify-end">
           <button
@@ -523,6 +549,7 @@ function PackageMenu({
   dishesById,
   ingredientsById,
   inventoryItems,
+  onCustomized,
 }: {
   booking: BookingDetail;
   venueName: string;
@@ -531,6 +558,7 @@ function PackageMenu({
   dishesById: Map<number, MenuDish>;
   ingredientsById: Map<number, MenuIngredient>;
   inventoryItems: InventoryItem[];
+  onCustomized: () => void;
 }) {
   const [pending, startTransition] = useTransition();
   const pkg = packages.find((p) => p.id === booking.packageId) ?? null;
@@ -599,6 +627,33 @@ function PackageMenu({
             />
           </div>
           <InventoryNeeds needs={needs} />
+
+          <div
+            className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl px-4 py-3"
+            style={{ background: "var(--surface-2)" }}
+          >
+            <span className="text-sm" style={{ color: "var(--text-2)" }}>
+              კლიენტს პაკეტიდან რომელიმე კერძის შეცვლა უნდა?
+            </span>
+            <button
+              className="btn btn-ghost"
+              disabled={pending}
+              onClick={() => {
+                if (
+                  confirm(
+                    "პაკეტის კერძები გადმოვა ინდივიდუალურ მენიუში, სადაც თავისუფლად შეცვლი. გავაგრძელო?",
+                  )
+                )
+                  startTransition(async () => {
+                    await applyPackageToBookingMenu(booking.id, pkg.id);
+                    onCustomized();
+                  });
+              }}
+            >
+              <Pencil size={15} /> პაკეტის მორგება
+            </button>
+          </div>
+
           <MenuExport
             venueName={venueName}
             booking={booking}

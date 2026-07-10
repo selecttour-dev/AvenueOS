@@ -651,21 +651,28 @@ export async function setBookingPackage(
 export async function addBookingDish(
   bookingId: number,
   dishId: number,
-  qtyPerGuest: number,
+  qty: number,
+  perGuest = true,
 ) {
   await db.insert(bookingDishes).values({
     bookingId,
     dishId,
-    qtyPerGuest: qtyPerGuest && qtyPerGuest > 0 ? qtyPerGuest : 1,
+    qty: qty && qty > 0 ? qty : 1,
+    perGuest,
   });
   revalidatePath(`/bookings/${bookingId}`);
 }
 
-export async function updateBookingDish(lineId: number, qtyPerGuest: number) {
-  if (!qtyPerGuest || qtyPerGuest <= 0) return;
+export async function updateBookingDish(
+  lineId: number,
+  input: { qty?: number; perGuest?: boolean },
+) {
   await db
     .update(bookingDishes)
-    .set({ qtyPerGuest })
+    .set({
+      ...(input.qty !== undefined && input.qty > 0 ? { qty: input.qty } : {}),
+      ...(input.perGuest !== undefined ? { perGuest: input.perGuest } : {}),
+    })
     .where(eq(bookingDishes.id, lineId));
   revalidatePath("/bookings", "layout");
 }
@@ -673,6 +680,35 @@ export async function updateBookingDish(lineId: number, qtyPerGuest: number) {
 export async function deleteBookingDish(lineId: number, bookingId: number) {
   await db.delete(bookingDishes).where(eq(bookingDishes.id, lineId));
   revalidatePath(`/bookings/${bookingId}`);
+}
+
+/** Copy a package's dishes into a booking's editable custom menu, then detach
+ *  the package — so the client can start from a package and swap dishes. */
+export async function applyPackageToBookingMenu(
+  bookingId: number,
+  packageId: number,
+) {
+  const pkgDishes = await db
+    .select()
+    .from(packageDishes)
+    .where(eq(packageDishes.packageId, packageId));
+
+  await db.delete(bookingDishes).where(eq(bookingDishes.bookingId, bookingId));
+  for (const pd of pkgDishes) {
+    await db.insert(bookingDishes).values({
+      bookingId,
+      dishId: pd.dishId,
+      qty: pd.qtyPerGuest,
+      perGuest: true,
+    });
+  }
+  await db
+    .update(bookings)
+    .set({ packageId: null })
+    .where(eq(bookings.id, bookingId));
+
+  revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/bookings");
 }
 
 // ---------- forecast / business-model params ----------

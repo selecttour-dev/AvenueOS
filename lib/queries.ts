@@ -216,7 +216,7 @@ export type BookingDetail = BookingRow & {
   endTime: string | null;
   clientId: number | null;
   packageId: number | null;
-  menuDishes: { id: number; dishId: number; qtyPerGuest: number }[];
+  menuDishes: { id: number; dishId: number; qty: number; perGuest: boolean }[];
   payments: BookingPayment[];
   expenses: BookingExpense[];
 };
@@ -299,7 +299,8 @@ export async function getBookingDetail(
     menuDishes: menu.map((m) => ({
       id: m.id,
       dishId: m.dishId,
-      qtyPerGuest: m.qtyPerGuest,
+      qty: m.qty,
+      perGuest: m.perGuest,
     })),
   };
 }

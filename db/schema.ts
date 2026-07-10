@@ -339,13 +339,11 @@ export const bookingDishes = pgTable("booking_dishes", {
   dishId: integer("dish_id")
     .notNull()
     .references(() => dishes.id, { onDelete: "cascade" }),
-  qtyPerGuest: numeric("qty_per_guest", {
-    precision: 10,
-    scale: 3,
-    mode: "number",
-  })
+  qty: numeric("qty", { precision: 12, scale: 3, mode: "number" })
     .notNull()
     .default(1),
+  // true → qty is per guest (×guests); false → qty is the total for the event
+  perGuest: boolean("per_guest").notNull().default(true),
 });
 
 // ---------- Inventory ----------
