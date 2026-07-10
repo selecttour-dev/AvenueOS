@@ -37,6 +37,8 @@ export type InventoryItem = {
   quantity: number;
   unitPrice: number;
   minQty: number | null;
+  // qty consumed per guest (serving-ware: plates, glasses). null/0 = not per-guest.
+  perGuest: number | null;
 };
 
 export type PackageDishLine = {
@@ -127,6 +129,63 @@ export function bookingMenuOrder(
       return dish ? { dish, portions: bookingLinePortions(l, guests) } : null;
     })
     .filter((x): x is { dish: MenuDish; portions: number } => x !== null);
+}
+
+/** Total SELLING value of a booking's menu = Σ dish.sellPrice × portions. */
+export function bookingMenuSelling(
+  lines: BookingMenuLine[],
+  dishesById: Map<number, MenuDish>,
+  guests: number,
+): number {
+  return lines.reduce((sum, l) => {
+    const dish = dishesById.get(l.dishId);
+    if (!dish) return sum;
+    return sum + dish.sellPrice * bookingLinePortions(l, guests);
+  }, 0);
+}
+
+/**
+ * Inventory needs for a whole event: dish-driven ware (per dish/portion, shared)
+ * PLUS per-guest serving-ware (items with a perGuest qty × guest count).
+ */
+export type InventoryNeed = {
+  item: InventoryItem;
+  required: number;
+  missing: number;
+  perGuestPart: number; // portion of `required` coming from per-guest serving-ware
+};
+
+export function bookingInventoryNeeds(
+  order: { dish: MenuDish; portions: number }[],
+  items: InventoryItem[],
+  guests: number,
+): InventoryNeed[] {
+  const required = new Map<number, number>();
+  for (const { dish, portions } of order) {
+    for (const l of dish.invLines) {
+      required.set(
+        l.itemId,
+        (required.get(l.itemId) ?? 0) + l.qtyPerPortion * portions,
+      );
+    }
+  }
+  for (const item of items) {
+    if (item.perGuest && item.perGuest > 0) {
+      required.set(
+        item.id,
+        (required.get(item.id) ?? 0) + item.perGuest * guests,
+      );
+    }
+  }
+  return items
+    .filter((i) => required.has(i.id))
+    .map((item) => ({
+      item,
+      required: required.get(item.id)!,
+      missing: Math.max(0, required.get(item.id)! - item.quantity),
+      perGuestPart: (item.perGuest ?? 0) * guests,
+    }))
+    .sort((a, b) => b.missing - a.missing);
 }
 
 /** Cost per guest of a package (recipe-driven); falls back to

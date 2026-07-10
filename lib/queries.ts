@@ -164,6 +164,7 @@ export async function getInventoryItems(venueId: number): Promise<InventoryItem[
     quantity: r.quantity,
     unitPrice: r.unitPrice,
     minQty: r.minQty,
+    perGuest: r.perGuest,
   }));
 }
 

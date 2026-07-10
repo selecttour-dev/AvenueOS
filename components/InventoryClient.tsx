@@ -129,6 +129,7 @@ function StockTab({ items }: { items: InventoryItem[] }) {
     quantity: "",
     unitPrice: "",
     minQty: "",
+    perGuest: "",
   });
 
   const categories = useMemo(
@@ -139,7 +140,7 @@ function StockTab({ items }: { items: InventoryItem[] }) {
   return (
     <>
       <Section title="ახალი პოზიცია" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
           <div className="lg:col-span-2">
             <label className="label">დასახელება</label>
             <input
@@ -184,15 +185,27 @@ function StockTab({ items }: { items: InventoryItem[] }) {
               onChange={(e) => setForm({ ...form, unitPrice: e.target.value })}
             />
           </div>
+          <div>
+            <label className="label">მინ. ზღვარი</label>
+            <input
+              type="number"
+              className="input"
+              placeholder="—"
+              value={form.minQty}
+              onChange={(e) => setForm({ ...form, minQty: e.target.value })}
+            />
+          </div>
           <div className="flex items-end gap-2">
             <div className="flex-1">
-              <label className="label">მინ. ზღვარი</label>
+              <label className="label" title="სერვირების ჭურჭელი — რამდენი მიდის თითო სტუმარზე">
+                სტუმარზე
+              </label>
               <input
                 type="number"
                 className="input"
                 placeholder="—"
-                value={form.minQty}
-                onChange={(e) => setForm({ ...form, minQty: e.target.value })}
+                value={form.perGuest}
+                onChange={(e) => setForm({ ...form, perGuest: e.target.value })}
               />
             </div>
             <button
@@ -207,6 +220,7 @@ function StockTab({ items }: { items: InventoryItem[] }) {
                     quantity: Number(form.quantity) || 0,
                     unitPrice: Number(form.unitPrice) || 0,
                     minQty: form.minQty === "" ? null : Number(form.minQty),
+                    perGuest: form.perGuest === "" ? null : Number(form.perGuest),
                   });
                   setForm({
                     name: "",
@@ -215,6 +229,7 @@ function StockTab({ items }: { items: InventoryItem[] }) {
                     quantity: "",
                     unitPrice: "",
                     minQty: "",
+                    perGuest: "",
                   });
                 })
               }
@@ -223,6 +238,11 @@ function StockTab({ items }: { items: InventoryItem[] }) {
             </button>
           </div>
         </div>
+        <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
+          „სტუმარზე“ — სერვირების ჭურჭელი (თეფში, ჭიქა), რომელიც სტუმრების
+          რაოდენობაზე მრავლდება. კერძის თეფშებს აქ ნუ შეავსებ — ისინი კერძს ებმება
+          „კალკულაციებში“.
+        </p>
       </Section>
 
       <Section>
@@ -243,6 +263,7 @@ function StockTab({ items }: { items: InventoryItem[] }) {
                   <th>ერთ. ფასი</th>
                   <th>ღირებულება</th>
                   <th>მინ. ზღვარი</th>
+                  <th>სტუმარზე</th>
                   <th>სტატუსი</th>
                   <th></th>
                 </tr>
@@ -265,17 +286,23 @@ function ItemRow({ item }: { item: InventoryItem }) {
   const [qty, setQty] = useState(String(item.quantity));
   const [price, setPrice] = useState(String(item.unitPrice));
   const [min, setMin] = useState(item.minQty == null ? "" : String(item.minQty));
+  const [perGuest, setPerGuest] = useState(
+    item.perGuest == null ? "" : String(item.perGuest),
+  );
 
   const low = item.minQty != null && item.quantity < item.minQty;
 
   const save =
     (
-      field: "quantity" | "unitPrice" | "minQty",
+      field: "quantity" | "unitPrice" | "minQty" | "perGuest",
       raw: string,
       current: number | null,
     ) =>
     () => {
-      const v = raw === "" && field === "minQty" ? null : Number(raw);
+      const v =
+        raw === "" && (field === "minQty" || field === "perGuest")
+          ? null
+          : Number(raw);
       if (v !== null && Number.isNaN(v)) return;
       if (v !== current)
         startTransition(() => updateInventoryItem(item.id, { [field]: v }));
@@ -319,6 +346,18 @@ function ItemRow({ item }: { item: InventoryItem }) {
           value={min}
           onChange={(e) => setMin(e.target.value)}
           onBlur={save("minQty", min, item.minQty)}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        />
+      </td>
+      <td>
+        <input
+          type="number"
+          className="input !w-20 !py-1.5"
+          placeholder="—"
+          title="სერვირების ჭურჭელი — რამდენი სტუმარზე"
+          value={perGuest}
+          onChange={(e) => setPerGuest(e.target.value)}
+          onBlur={save("perGuest", perGuest, item.perGuest)}
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
         />
       </td>

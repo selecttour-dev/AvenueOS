@@ -47,13 +47,15 @@ import {
   STATUS_ORDER,
 } from "@/lib/booking-shared";
 import {
+  bookingInventoryNeeds,
   bookingMenuOrder,
+  bookingMenuSelling,
   bookingMenuTotalCost,
   dishCost,
-  inventoryNeeds,
   packageCostPerGuest,
   packageOrder,
   type InventoryItem,
+  type InventoryNeed,
   type MenuCategory,
   type MenuDish,
   type MenuIngredient,
@@ -332,9 +334,12 @@ function CustomMenu({
   const guests = booking.guestCount;
   const menuCost = bookingMenuTotalCost(lines, dishesById, ingredientsById, guests);
   const costPerGuest = guests > 0 ? menuCost / guests : 0;
-  const needs = inventoryNeeds(
+  const selling = bookingMenuSelling(lines, dishesById, guests);
+  const sellingPerGuest = guests > 0 ? selling / guests : 0;
+  const needs = bookingInventoryNeeds(
     bookingMenuOrder(lines, dishesById, guests),
     inventoryItems,
+    guests,
   );
 
   // dishes grouped by category, filtered by search
@@ -460,24 +465,34 @@ function CustomMenu({
             </table>
           </div>
 
+          {/* Always visible — this is the client quote */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <MiniBox
+              label="ჯამური თანხა (გასაყიდი)"
+              value={gel(selling)}
+              sub={`${gel(sellingPerGuest, 2)} / 1 სტუმარი`}
+              color="var(--green)"
+            />
+            <SetPriceBox
+              booking={booking}
+              sellingPerGuest={sellingPerGuest}
+            />
+          </div>
+
           {showCost && (
             <>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <MiniBox
-                  label={`მენიუს ღირ. (${booking.guestCount} სტ.)`}
+                  label={`თვითღირებულება (${booking.guestCount} სტ.)`}
                   value={gel(menuCost)}
                   sub={`${gel(costPerGuest, 2)} / სტუმარი`}
                   color="var(--gold)"
                 />
                 <MiniBox
-                  label="ფასი vs ღირებულება"
-                  value={booking.pricePerGuest ? gel(booking.pricePerGuest - costPerGuest, 2) : "—"}
-                  sub={
-                    booking.pricePerGuest
-                      ? `ფასი ${gel(booking.pricePerGuest, 2)} − მენიუ ${gel(costPerGuest, 2)} / სტ.`
-                      : "ჯავშნის ფასი მითითებული არაა"
-                  }
-                  color={booking.pricePerGuest - costPerGuest >= 0 ? "var(--green)" : "var(--red)"}
+                  label="მოგება (მენიუ)"
+                  value={gel(selling - menuCost)}
+                  sub={`გასაყიდი ${gel(selling)} − ღირ. ${gel(menuCost)}`}
+                  color={selling - menuCost >= 0 ? "var(--green)" : "var(--red)"}
                 />
               </div>
               <InventoryNeeds needs={needs} />
@@ -605,7 +620,11 @@ function PackageMenu({
   const menuCost = costPerGuest * booking.guestCount;
   const menuRevenue = pkg ? pkg.pricePerGuest * booking.guestCount : 0;
   const needs = pkg
-    ? inventoryNeeds(packageOrder(pkg, dishesById, booking.guestCount), inventoryItems)
+    ? bookingInventoryNeeds(
+        packageOrder(pkg, dishesById, booking.guestCount),
+        inventoryItems,
+        booking.guestCount,
+      )
     : [];
 
   return (
@@ -633,23 +652,28 @@ function PackageMenu({
         </div>
       ) : (
         <>
+          {/* Always visible — client quote */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <MiniBox
+              label="ჯამური თანხა (გასაყიდი)"
+              value={gel(menuRevenue)}
+              sub={pkg.pricePerGuest ? `${gel(pkg.pricePerGuest, 2)} / 1 სტუმარი` : "პაკეტს ფასი არ აქვს"}
+              color="var(--green)"
+            />
+            <SetPriceBox booking={booking} sellingPerGuest={pkg.pricePerGuest} />
+          </div>
+
           {showCost && (
             <>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <MiniBox
-                  label={`მენიუს ღირ. (${booking.guestCount} სტ.)`}
+                  label={`თვითღირებულება (${booking.guestCount} სტ.)`}
                   value={gel(menuCost)}
                   sub={`${gel(costPerGuest, 2)} / სტუმარი`}
                   color="var(--gold)"
                 />
                 <MiniBox
-                  label="მენიუს შემოსავალი"
-                  value={gel(menuRevenue)}
-                  sub={pkg.pricePerGuest ? `${gel(pkg.pricePerGuest, 2)} / სტუმარი` : "ფასი მითითებული არაა"}
-                  color="var(--text)"
-                />
-                <MiniBox
-                  label="მენიუს მოგება"
+                  label="მოგება (მენიუ)"
                   value={gel(menuRevenue - menuCost)}
                   sub={pkg.dishes.length + " კერძი"}
                   color={menuRevenue - menuCost >= 0 ? "var(--green)" : "var(--red)"}
@@ -830,11 +854,7 @@ function MenuExport({
   );
 }
 
-function InventoryNeeds({
-  needs,
-}: {
-  needs: { item: InventoryItem; required: number; missing: number }[];
-}) {
+function InventoryNeeds({ needs }: { needs: InventoryNeed[] }) {
   const missing = needs.filter((n) => n.missing > 0);
   return (
     <div className="mt-5">
@@ -852,8 +872,8 @@ function InventoryNeeds({
       </div>
       {needs.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--text-3)" }}>
-          მენიუს კერძებს ინვენტარი არ აქვთ მიბმული — „კალკულაციებში“ კერძის ბარათზე
-          მიუთითე (მაგ. ლობიანი → 1 თეფში).
+          ინვენტარი ვერ დაითვალა — კერძებს მიაბი თეფშები „კალკულაციებში“, ხოლო
+          სერვირების ჭურჭელს მიუთითე „სტუმარზე“ რაოდენობა ინვენტარიზაციაში.
         </p>
       ) : (
         <div className="table-wrap">
@@ -861,28 +881,39 @@ function InventoryNeeds({
             <thead>
               <tr>
                 <th>ინვენტარი</th>
+                <th>წყარო</th>
                 <th>საჭიროა</th>
                 <th>მარაგშია</th>
                 <th>აკლია</th>
               </tr>
             </thead>
             <tbody>
-              {needs.map(({ item, required, missing: miss }) => (
-                <tr key={item.id}>
-                  <td className="font-semibold">{item.name}</td>
-                  <td>{Math.round(required * 100) / 100} {item.unit}</td>
-                  <td>{item.quantity} {item.unit}</td>
-                  <td>
-                    {miss > 0 ? (
-                      <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
-                        {Math.round(miss * 100) / 100} {item.unit}
-                      </span>
-                    ) : (
-                      <span style={{ color: "var(--green)" }}>—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {needs.map(({ item, required, missing: miss, perGuestPart }) => {
+                const dishPart = required - perGuestPart;
+                const source =
+                  perGuestPart > 0 && dishPart > 0
+                    ? "სტუმარი + კერძი"
+                    : perGuestPart > 0
+                      ? "სტუმარზე"
+                      : "კერძებიდან";
+                return (
+                  <tr key={item.id}>
+                    <td className="font-semibold">{item.name}</td>
+                    <td className="text-xs" style={{ color: "var(--text-3)" }}>{source}</td>
+                    <td>{Math.round(required * 100) / 100} {item.unit}</td>
+                    <td>{item.quantity} {item.unit}</td>
+                    <td>
+                      {miss > 0 ? (
+                        <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
+                          {Math.round(miss * 100) / 100} {item.unit}
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--green)" }}>—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -907,6 +938,52 @@ function MiniBox({
       <div className="text-xs" style={{ color: "var(--text-3)" }}>{label}</div>
       <div className="mt-1 text-lg font-extrabold" style={{ color }}>{value}</div>
       <div className="text-xs" style={{ color: "var(--text-3)" }}>{sub}</div>
+    </div>
+  );
+}
+
+function SetPriceBox({
+  booking,
+  sellingPerGuest,
+}: {
+  booking: BookingDetail;
+  sellingPerGuest: number;
+}) {
+  const [pending, startTransition] = useTransition();
+  const rounded = Math.round(sellingPerGuest * 100) / 100;
+  const matches = Math.abs(booking.pricePerGuest - rounded) < 0.01;
+
+  return (
+    <div
+      className="flex flex-col justify-between rounded-xl px-4 py-3"
+      style={{ background: "var(--surface-2)" }}
+    >
+      <div>
+        <div className="text-xs" style={{ color: "var(--text-3)" }}>
+          ჯავშნის ფასი / სტუმარი
+        </div>
+        <div className="mt-1 text-lg font-extrabold">
+          {booking.pricePerGuest ? gel(booking.pricePerGuest, 2) : "0 ₾"}
+        </div>
+      </div>
+      {sellingPerGuest > 0 && !matches && (
+        <button
+          className="btn btn-ghost mt-2 !py-1.5"
+          disabled={pending}
+          onClick={() =>
+            startTransition(async () => {
+              await updateBooking(booking.id, { pricePerGuest: rounded });
+            })
+          }
+        >
+          <Check size={14} /> მენიუს ფასის დაყენება ({gel(rounded, 2)})
+        </button>
+      )}
+      {matches && (
+        <div className="mt-2 text-xs font-semibold" style={{ color: "var(--green)" }}>
+          ✓ მენიუს ფასის ტოლია
+        </div>
+      )}
     </div>
   );
 }

@@ -652,7 +652,7 @@ export async function addBookingDish(
   bookingId: number,
   dishId: number,
   qty: number,
-  perGuest = true,
+  perGuest = false, // dishes are shared by default — 1 dish → 1 plate, not ×guests
 ) {
   await db.insert(bookingDishes).values({
     bookingId,
@@ -779,6 +779,7 @@ export async function createInventoryItem(input: {
   quantity: number;
   unitPrice: number;
   minQty?: number | null;
+  perGuest?: number | null;
 }) {
   const venueId = await getActiveVenueId();
   if (!venueId || !input.name.trim()) return;
@@ -790,9 +791,11 @@ export async function createInventoryItem(input: {
     quantity: input.quantity || 0,
     unitPrice: input.unitPrice || 0,
     minQty: input.minQty ?? null,
+    perGuest: input.perGuest ?? null,
   });
   revalidatePath("/inventory");
   revalidatePath("/calc");
+  revalidatePath("/bookings", "layout");
 }
 
 export async function updateInventoryItem(
@@ -803,6 +806,7 @@ export async function updateInventoryItem(
     quantity?: number;
     unitPrice?: number;
     minQty?: number | null;
+    perGuest?: number | null;
   },
 ) {
   await db
@@ -815,10 +819,12 @@ export async function updateInventoryItem(
       ...(input.quantity !== undefined ? { quantity: input.quantity } : {}),
       ...(input.unitPrice !== undefined ? { unitPrice: input.unitPrice } : {}),
       ...(input.minQty !== undefined ? { minQty: input.minQty } : {}),
+      ...(input.perGuest !== undefined ? { perGuest: input.perGuest } : {}),
     })
     .where(eq(inventoryItems.id, id));
   revalidatePath("/inventory");
   revalidatePath("/calc");
+  revalidatePath("/bookings", "layout");
 }
 
 export async function deleteInventoryItem(id: number) {
