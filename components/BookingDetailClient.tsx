@@ -6,14 +6,18 @@ import { useMemo, useState, useTransition } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
+  Check,
   CheckCircle2,
   CircleDollarSign,
+  Copy,
   HandCoins,
   Package as PackageIcon,
   Pencil,
   Plus,
+  Printer,
   Receipt,
   Save,
+  Search,
   Trash2,
   TrendingUp,
   UtensilsCrossed,
@@ -47,6 +51,7 @@ import {
   packageCostPerGuest,
   packageOrder,
   type InventoryItem,
+  type MenuCategory,
   type MenuDish,
   type MenuIngredient,
   type MenuPackage,
@@ -57,14 +62,18 @@ import { PageHeader, Section, StatCard, StatusBadge, EmptyState, EVENT_TYPE_LABE
 
 export default function BookingDetailClient({
   booking,
+  venueName,
   packages,
   dishes,
+  categories,
   ingredients,
   inventoryItems,
 }: {
   booking: BookingDetail;
+  venueName: string;
   packages: MenuPackage[];
   dishes: MenuDish[];
+  categories: MenuCategory[];
   ingredients: MenuIngredient[];
   inventoryItems: InventoryItem[];
 }) {
@@ -171,8 +180,10 @@ export default function BookingDetailClient({
       <div className="mt-6">
         <MenuPanel
           booking={booking}
+          venueName={venueName}
           packages={packages}
           dishes={dishes}
+          categories={categories}
           ingredients={ingredients}
           inventoryItems={inventoryItems}
         />
@@ -185,14 +196,18 @@ export default function BookingDetailClient({
 
 function MenuPanel({
   booking,
+  venueName,
   packages,
   dishes,
+  categories,
   ingredients,
   inventoryItems,
 }: {
   booking: BookingDetail;
+  venueName: string;
   packages: MenuPackage[];
   dishes: MenuDish[];
+  categories: MenuCategory[];
   ingredients: MenuIngredient[];
   inventoryItems: InventoryItem[];
 }) {
@@ -247,7 +262,9 @@ function MenuPanel({
       {mode === "custom" ? (
         <CustomMenu
           booking={booking}
+          venueName={venueName}
           dishes={dishes}
+          categories={categories}
           dishesById={dishesById}
           ingredientsById={ingredientsById}
           inventoryItems={inventoryItems}
@@ -255,7 +272,9 @@ function MenuPanel({
       ) : (
         <PackageMenu
           booking={booking}
+          venueName={venueName}
           packages={packages}
+          categories={categories}
           dishesById={dishesById}
           ingredientsById={ingredientsById}
           inventoryItems={inventoryItems}
@@ -267,101 +286,156 @@ function MenuPanel({
 
 function CustomMenu({
   booking,
+  venueName,
   dishes,
+  categories,
   dishesById,
   ingredientsById,
   inventoryItems,
 }: {
   booking: BookingDetail;
+  venueName: string;
   dishes: MenuDish[];
+  categories: MenuCategory[];
   dishesById: Map<number, MenuDish>;
   ingredientsById: Map<number, MenuIngredient>;
   inventoryItems: InventoryItem[];
 }) {
   const [pending, startTransition] = useTransition();
-  const [pick, setPick] = useState("");
+  const [query, setQuery] = useState("");
 
   const lines = booking.menuDishes;
+  const lineByDish = useMemo(
+    () => new Map(lines.map((l) => [l.dishId, l])),
+    [lines],
+  );
   const costPerGuest = menuCostPerGuest(lines, dishesById, ingredientsById);
   const menuCost = costPerGuest * booking.guestCount;
   const needs = inventoryNeeds(
     menuOrder(lines, dishesById, booking.guestCount),
     inventoryItems,
   );
-  const available = dishes.filter((d) => !lines.some((l) => l.dishId === d.id));
 
-  const quickAdd = (dishId: number) =>
+  // dishes grouped by category, filtered by search
+  const q = query.trim().toLowerCase();
+  const groups = useMemo(() => {
+    const catName = new Map(categories.map((c) => [c.id, c.name]));
+    const buckets = new Map<string, MenuDish[]>();
+    for (const d of dishes) {
+      if (q && !d.name.toLowerCase().includes(q)) continue;
+      const key = d.categoryId != null ? catName.get(d.categoryId) ?? "სხვა" : "სხვა";
+      const arr = buckets.get(key) ?? [];
+      arr.push(d);
+      buckets.set(key, arr);
+    }
+    // preserve category order, "სხვა" last
+    const ordered: { name: string; dishes: MenuDish[] }[] = [];
+    for (const c of categories) {
+      const arr = buckets.get(c.name);
+      if (arr) ordered.push({ name: c.name, dishes: arr });
+    }
+    const other = buckets.get("სხვა");
+    if (other) ordered.push({ name: "სხვა", dishes: other });
+    return ordered;
+  }, [dishes, categories, q]);
+
+  const toggle = (dish: MenuDish) => {
+    const existing = lineByDish.get(dish.id);
     startTransition(async () => {
-      await addBookingDish(booking.id, dishId, 1);
-      setPick("");
+      if (existing) await deleteBookingDish(existing.id, booking.id);
+      else await addBookingDish(booking.id, dish.id, 1);
     });
+  };
 
   return (
     <>
       <p className="mb-3 text-xs" style={{ color: "var(--text-3)" }}>
-        დაამატე კერძები რაც კლიენტმა მოისურვა — ღირებულება და საჭირო ინვენტარი
-        ავტომ. დაითვლება {booking.guestCount} სტუმარზე.
+        დააჭირე კერძებს რაც კლიენტმა მოისურვა — ერთი შეხებით ემატება/იშლება.
+        ღირებულება და ინვენტარი ავტომ. დაითვლება {booking.guestCount} სტუმარზე.
       </p>
 
-      {lines.length > 0 && (
-        <div className="table-wrap mb-4 -mx-1">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>კერძი</th>
-                <th>რაოდ. / სტუმარი</th>
-                <th>ღირ. / სტუმარი</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((l) => {
-                const dish = dishesById.get(l.dishId);
-                if (!dish) return null;
-                return (
-                  <CustomMenuRow
-                    key={l.id}
-                    line={l}
-                    dish={dish}
-                    bookingId={booking.id}
-                    ingredientsById={ingredientsById}
-                  />
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* search */}
+      <div className="relative mb-3">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-3)" }} />
+        <input
+          className="input !pl-9"
+          placeholder="კერძის ძებნა…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
 
-      {/* fast add */}
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-48 flex-1">
-          <label className="label">კერძის დამატება</label>
-          <select
-            className="select"
-            value={pick}
-            disabled={pending}
-            onChange={(e) => e.target.value && quickAdd(Number(e.target.value))}
-          >
-            <option value="">
-              {available.length ? "— აირჩიე კერძი —" : "ყველა კერძი დამატებულია"}
-            </option>
-            {available.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} ({gel(dishCost(d.lines, ingredientsById), 2)})
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* clickable dish chips grouped by category */}
+      <div className="mb-4 flex flex-col gap-3" style={{ maxHeight: 260, overflowY: "auto" }}>
+        {groups.length === 0 ? (
+          <p className="text-sm" style={{ color: "var(--text-3)" }}>ვერ მოიძებნა.</p>
+        ) : (
+          groups.map((g) => (
+            <div key={g.name}>
+              <div className="mb-1.5 text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-3)" }}>
+                {g.name}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {g.dishes.map((d) => {
+                  const added = lineByDish.has(d.id);
+                  return (
+                    <button
+                      key={d.id}
+                      disabled={pending}
+                      onClick={() => toggle(d)}
+                      className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors"
+                      style={
+                        added
+                          ? { background: "var(--primary)", color: "#fff" }
+                          : { background: "var(--surface)", color: "var(--text-2)", border: "1px solid var(--border)" }
+                      }
+                    >
+                      {added ? <Check size={14} /> : <Plus size={14} />}
+                      {d.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {lines.length === 0 ? (
-        <p className="mt-4 text-sm" style={{ color: "var(--text-3)" }}>
-          ჯერ კერძი არ დამატებულა.
+        <p className="text-sm" style={{ color: "var(--text-3)" }}>
+          ჯერ კერძი არ არჩეულა — დააჭირე ზემოთ კერძებს.
         </p>
       ) : (
         <>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div className="table-wrap mb-4 -mx-1">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>არჩეული კერძი</th>
+                  <th>რაოდ. / სტუმარი</th>
+                  <th>ღირ. / სტუმარი</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((l) => {
+                  const dish = dishesById.get(l.dishId);
+                  if (!dish) return null;
+                  return (
+                    <CustomMenuRow
+                      key={l.id}
+                      line={l}
+                      dish={dish}
+                      bookingId={booking.id}
+                      ingredientsById={ingredientsById}
+                    />
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
             <MiniBox
               label={`მენიუს ღირ. (${booking.guestCount} სტ.)`}
               value={gel(menuCost)}
@@ -380,6 +454,13 @@ function CustomMenu({
             />
           </div>
           <InventoryNeeds needs={needs} />
+          <MenuExport
+            venueName={venueName}
+            booking={booking}
+            lines={lines}
+            dishesById={dishesById}
+            categories={categories}
+          />
         </>
       )}
     </>
@@ -436,13 +517,17 @@ function CustomMenuRow({
 
 function PackageMenu({
   booking,
+  venueName,
   packages,
+  categories,
   dishesById,
   ingredientsById,
   inventoryItems,
 }: {
   booking: BookingDetail;
+  venueName: string;
   packages: MenuPackage[];
+  categories: MenuCategory[];
   dishesById: Map<number, MenuDish>;
   ingredientsById: Map<number, MenuIngredient>;
   inventoryItems: InventoryItem[];
@@ -514,9 +599,148 @@ function PackageMenu({
             />
           </div>
           <InventoryNeeds needs={needs} />
+          <MenuExport
+            venueName={venueName}
+            booking={booking}
+            lines={pkg.dishes}
+            dishesById={dishesById}
+            categories={categories}
+          />
         </>
       )}
     </>
+  );
+}
+
+// ---------------- Menu export (print / copy) ----------------
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function groupMenu(
+  lines: { dishId: number }[],
+  dishesById: Map<number, MenuDish>,
+  categories: MenuCategory[],
+): { name: string; dishes: string[] }[] {
+  const catName = new Map(categories.map((c) => [c.id, c.name]));
+  const buckets = new Map<string, string[]>();
+  for (const l of lines) {
+    const dish = dishesById.get(l.dishId);
+    if (!dish) continue;
+    const key =
+      dish.categoryId != null ? catName.get(dish.categoryId) ?? "სხვა" : "სხვა";
+    const arr = buckets.get(key) ?? [];
+    arr.push(dish.name);
+    buckets.set(key, arr);
+  }
+  const ordered: { name: string; dishes: string[] }[] = [];
+  for (const c of categories) {
+    const arr = buckets.get(c.name);
+    if (arr) ordered.push({ name: c.name, dishes: arr });
+  }
+  const other = buckets.get("სხვა");
+  if (other) ordered.push({ name: "სხვა", dishes: other });
+  return ordered;
+}
+
+function MenuExport({
+  venueName,
+  booking,
+  lines,
+  dishesById,
+  categories,
+}: {
+  venueName: string;
+  booking: BookingDetail;
+  lines: { dishId: number }[];
+  dishesById: Map<number, MenuDish>;
+  categories: MenuCategory[];
+}) {
+  const [copied, setCopied] = useState(false);
+  const groups = groupMenu(lines, dishesById, categories);
+
+  const asText = () => {
+    const head = `${venueName}\n${booking.title}\n${fmtDate(booking.eventDate)} · ${booking.guestCount} სტუმარი\n`;
+    const body = groups
+      .map(
+        (g) => `\n${g.name.toUpperCase()}\n` + g.dishes.map((d) => `• ${d}`).join("\n"),
+      )
+      .join("\n");
+    return head + body;
+  };
+
+  const copyMenu = async () => {
+    try {
+      await navigator.clipboard.writeText(asText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — ignore */
+    }
+  };
+
+  const printMenu = () => {
+    const sections = groups
+      .map(
+        (g) =>
+          `<section><h2>${escapeHtml(g.name)}</h2><ul>${g.dishes
+            .map((d) => `<li>${escapeHtml(d)}</li>`)
+            .join("")}</ul></section>`,
+      )
+      .join("");
+    const html = `<!doctype html><html lang="ka"><head><meta charset="utf-8"><title>${escapeHtml(booking.title)} — მენიუ</title>
+<style>
+  @page { margin: 24mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Noto Sans Georgian", system-ui, sans-serif; color: #23221c; margin: 0; padding: 40px; }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  header { text-align: center; border-bottom: 2px solid #2d5a3d; padding-bottom: 18px; margin-bottom: 26px; }
+  .venue { font-size: 13px; letter-spacing: .18em; text-transform: uppercase; color: #967c3a; font-weight: 700; }
+  h1 { font-size: 26px; margin: 8px 0 4px; }
+  .meta { font-size: 13px; color: #6b675c; }
+  section { margin-bottom: 22px; }
+  h2 { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: #2d5a3d; border-bottom: 1px solid #e6e3da; padding-bottom: 5px; margin: 0 0 10px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 4px 0; font-size: 16px; }
+  footer { margin-top: 34px; text-align: center; font-size: 12px; color: #a09b8c; }
+</style></head>
+<body><div class="wrap">
+  <header>
+    <div class="venue">${escapeHtml(venueName)}</div>
+    <h1>${escapeHtml(booking.title)}</h1>
+    <div class="meta">${escapeHtml(fmtDate(booking.eventDate))} · ${booking.guestCount} სტუმარი</div>
+  </header>
+  ${sections || "<p>მენიუ ცარიელია</p>"}
+  <footer>მადლობა რომ აგვირჩიეთ</footer>
+</div>
+<script>window.onload=function(){setTimeout(function(){window.print();},250);};</script>
+</body></html>`;
+    const w = window.open("", "_blank", "width=760,height=1000");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+  };
+
+  return (
+    <div
+      className="mt-5 flex flex-wrap items-center gap-2 pt-4"
+      style={{ borderTop: "1px solid var(--border)" }}
+    >
+      <span className="text-sm font-semibold" style={{ color: "var(--text-2)" }}>
+        მენიუს გაგზავნა კლიენტს:
+      </span>
+      <button className="btn btn-ghost" onClick={printMenu}>
+        <Printer size={15} /> ბეჭდვა / PDF
+      </button>
+      <button className="btn btn-ghost" onClick={copyMenu}>
+        {copied ? <Check size={15} /> : <Copy size={15} />}
+        {copied ? "დაკოპირდა ✓" : "ტექსტის კოპირება"}
+      </button>
+    </div>
   );
 }
 
