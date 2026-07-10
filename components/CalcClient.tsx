@@ -6,6 +6,7 @@ import {
   Carrot,
   ChevronDown,
   ChevronRight,
+  PackageOpen,
   Plus,
   Trash2,
   UtensilsCrossed,
@@ -14,18 +15,24 @@ import {
 } from "lucide-react";
 import {
   addDishInventory,
+  addPackageDish,
   addRecipeLine,
   createDish,
   createDishCategory,
   createIngredient,
+  createPackage,
   deleteDish,
   deleteDishCategory,
   deleteDishInventory,
   deleteIngredient,
+  deletePackage,
+  deletePackageDish,
   deleteRecipeLine,
   updateDish,
   updateDishInventory,
   updateIngredient,
+  updatePackage,
+  updatePackageDish,
   updateRecipeLine,
 } from "@/lib/actions";
 import {
@@ -35,11 +42,13 @@ import {
   dishCost,
   foodCostPct,
   lineCost,
+  packageCostPerGuest,
   suggestedPrice,
   type InventoryItem,
   type MenuCategory,
   type MenuDish,
   type MenuIngredient,
+  type MenuPackage,
 } from "@/lib/menu-shared";
 import { gel } from "@/lib/format";
 import { PageHeader, Section, EmptyState } from "@/components/ui";
@@ -49,6 +58,7 @@ type Props = {
   categories: MenuCategory[];
   dishes: MenuDish[];
   inventoryItems: InventoryItem[];
+  packages: MenuPackage[];
 };
 
 export default function CalcClient({
@@ -56,21 +66,26 @@ export default function CalcClient({
   categories,
   dishes,
   inventoryItems,
+  packages,
 }: Props) {
-  const [tab, setTab] = useState<"dishes" | "ingredients">("dishes");
+  const [tab, setTab] = useState<"dishes" | "ingredients" | "packages">("dishes");
   const ingredientsById = useMemo(
     () => new Map(ingredients.map((i) => [i.id, i])),
     [ingredients],
+  );
+  const dishesById = useMemo(
+    () => new Map(dishes.map((d) => [d.id, d])),
+    [dishes],
   );
 
   return (
     <>
       <PageHeader
         title="კალკულაციები"
-        subtitle="ინგრედიენტი → კერძი → თვითღირებულება ავტომატურად"
+        subtitle="ინგრედიენტი → კერძი → პაკეტი → თვითღირებულება ავტომატურად"
       />
 
-      <div className="mb-5 flex gap-2">
+      <div className="mb-5 flex flex-wrap gap-2">
         <TabButton
           active={tab === "dishes"}
           onClick={() => setTab("dishes")}
@@ -81,11 +96,17 @@ export default function CalcClient({
           onClick={() => setTab("ingredients")}
           label={`ინგრედიენტები (${ingredients.length})`}
         />
+        <TabButton
+          active={tab === "packages"}
+          onClick={() => setTab("packages")}
+          label={`პაკეტები (${packages.length})`}
+        />
       </div>
 
-      {tab === "ingredients" ? (
+      {tab === "ingredients" && (
         <IngredientsTab ingredients={ingredients} dishes={dishes} />
-      ) : (
+      )}
+      {tab === "dishes" && (
         <DishesTab
           ingredients={ingredients}
           ingredientsById={ingredientsById}
@@ -93,6 +114,15 @@ export default function CalcClient({
           dishes={dishes}
           inventoryItems={inventoryItems}
           goToIngredients={() => setTab("ingredients")}
+        />
+      )}
+      {tab === "packages" && (
+        <PackagesTab
+          packages={packages}
+          dishes={dishes}
+          dishesById={dishesById}
+          ingredientsById={ingredientsById}
+          goToDishes={() => setTab("dishes")}
         />
       )}
     </>
@@ -1018,6 +1048,329 @@ function RecipeLineRow({
             className="btn btn-danger !px-2.5 !py-1.5"
             disabled={pending}
             onClick={() => startTransition(() => deleteRecipeLine(line.id))}
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ---------------- Packages ----------------
+
+function PackagesTab({
+  packages,
+  dishes,
+  dishesById,
+  ingredientsById,
+  goToDishes,
+}: {
+  packages: MenuPackage[];
+  dishes: MenuDish[];
+  dishesById: Map<number, MenuDish>;
+  ingredientsById: Map<number, MenuIngredient>;
+  goToDishes: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [form, setForm] = useState({ name: "", price: "" });
+
+  if (dishes.length === 0) {
+    return (
+      <Section>
+        <EmptyState
+          icon={UtensilsCrossed}
+          title="ჯერ კერძები დაამატე"
+          text="პაკეტი კერძებისგან იწყობა. ჯერ „კერძები“ ტაბზე დაამატე კერძები რეცეპტებით."
+          action={
+            <button className="btn btn-primary" onClick={goToDishes}>
+              <Plus size={16} /> კერძებზე გადასვლა
+            </button>
+          }
+        />
+      </Section>
+    );
+  }
+
+  return (
+    <>
+      <Section title="ახალი პაკეტი" className="mb-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="lg:col-span-2">
+            <label className="label">პაკეტის სახელი</label>
+            <input
+              className="input"
+              placeholder="მაგ. სტანდარტული მენიუ"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">ფასი სტუმარზე ₾</label>
+            <input
+              type="number"
+              className="input"
+              placeholder="0.00"
+              value={form.price}
+              onChange={(e) => setForm({ ...form, price: e.target.value })}
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              className="btn btn-primary w-full"
+              disabled={pending || !form.name.trim()}
+              onClick={() =>
+                startTransition(async () => {
+                  await createPackage({
+                    name: form.name,
+                    pricePerGuest: Number(form.price) || 0,
+                  });
+                  setForm({ name: "", price: "" });
+                })
+              }
+            >
+              <Plus size={16} /> დამატება
+            </button>
+          </div>
+        </div>
+      </Section>
+
+      {packages.length === 0 ? (
+        <Section>
+          <EmptyState
+            icon={PackageOpen}
+            title="პაკეტები არ არის"
+            text="შექმენი პაკეტი, გახსენი და ჩაუწყვე კერძები პორცია/სტუმარით — ღირებულება ავტომატურად დაითვლება."
+          />
+        </Section>
+      ) : (
+        <div className="grid gap-4">
+          {packages.map((p) => (
+            <PackageCard
+              key={p.id}
+              pkg={p}
+              dishes={dishes}
+              dishesById={dishesById}
+              ingredientsById={ingredientsById}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function PackageCard({
+  pkg,
+  dishes,
+  dishesById,
+  ingredientsById,
+}: {
+  pkg: MenuPackage;
+  dishes: MenuDish[];
+  dishesById: Map<number, MenuDish>;
+  ingredientsById: Map<number, MenuIngredient>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [price, setPrice] = useState(String(pkg.pricePerGuest || ""));
+  const [newDishId, setNewDishId] = useState("");
+  const [newQty, setNewQty] = useState("1");
+
+  const cost = packageCostPerGuest(pkg, dishesById, ingredientsById);
+  const margin = pkg.pricePerGuest - cost;
+  const marginPct = pkg.pricePerGuest ? (margin / pkg.pricePerGuest) * 100 : null;
+  const available = dishes.filter(
+    (d) => !pkg.dishes.some((pd) => pd.dishId === d.id),
+  );
+
+  return (
+    <div className="card">
+      <div
+        className="flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span style={{ color: "var(--text-3)" }}>
+          {open ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+        </span>
+        <div className="min-w-40 flex-1">
+          <div className="font-bold">{pkg.name}</div>
+          <div className="text-xs" style={{ color: "var(--text-3)" }}>
+            {pkg.dishes.length} კერძი
+          </div>
+        </div>
+        <Metric label="ღირ./სტუმარი" value={gel(cost, 2)} strong />
+        <Metric
+          label="მარჟა"
+          value={pkg.pricePerGuest ? `${marginPct!.toFixed(0)}%` : "—"}
+          color={
+            !pkg.pricePerGuest
+              ? undefined
+              : margin >= 0
+                ? "var(--green)"
+                : "var(--red)"
+          }
+        />
+        <div onClick={(e) => e.stopPropagation()}>
+          <div className="label !mb-1">ფასი/სტუმარი</div>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              className="input !w-24 !py-1.5"
+              placeholder="0.00"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              onBlur={() => {
+                const v = Number(price) || 0;
+                if (v !== pkg.pricePerGuest)
+                  startTransition(() => updatePackage(pkg.id, { pricePerGuest: v }));
+              }}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+            <span className="text-xs" style={{ color: "var(--text-3)" }}>₾</span>
+          </div>
+        </div>
+        <button
+          className="btn btn-danger !px-2.5 !py-1.5"
+          title="პაკეტის წაშლა"
+          disabled={pending}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (confirm(`წავშალო პაკეტი „${pkg.name}“?`))
+              startTransition(() => deletePackage(pkg.id));
+          }}
+        >
+          <Trash2 size={15} />
+        </button>
+      </div>
+
+      {open && (
+        <div className="px-5 pb-5 pt-4" style={{ borderTop: "1px solid var(--border)" }}>
+          {pkg.dishes.length > 0 && (
+            <div className="table-wrap mb-4">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>კერძი</th>
+                    <th>პორცია / სტუმარი</th>
+                    <th>ღირ. / სტუმარი</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pkg.dishes.map((pd) => {
+                    const dish = dishesById.get(pd.dishId);
+                    if (!dish) return null;
+                    return (
+                      <PackageDishRow
+                        key={pd.id}
+                        line={pd}
+                        dish={dish}
+                        ingredientsById={ingredientsById}
+                      />
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-48 flex-1">
+              <label className="label">კერძის დამატება</label>
+              <select className="select" value={newDishId} onChange={(e) => setNewDishId(e.target.value)}>
+                <option value="">— აირჩიე —</option>
+                {available.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} ({gel(dishCost(d.lines, ingredientsById), 2)})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">პორცია/სტუმარი</label>
+              <input
+                type="number"
+                className="input !w-32"
+                placeholder="1"
+                value={newQty}
+                onChange={(e) => setNewQty(e.target.value)}
+              />
+            </div>
+            <button
+              className="btn btn-primary"
+              disabled={pending || !newDishId || !(Number(newQty) > 0)}
+              onClick={() =>
+                startTransition(async () => {
+                  await addPackageDish(pkg.id, Number(newDishId), Number(newQty));
+                  setNewDishId("");
+                  setNewQty("1");
+                })
+              }
+            >
+              <Plus size={16} /> დამატება
+            </button>
+          </div>
+
+          <div
+            className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl px-4 py-3 text-sm"
+            style={{ background: "var(--surface-2)" }}
+          >
+            <span>
+              ღირებულება/სტუმარი: <b style={{ color: "var(--gold)" }}>{gel(cost, 2)}</b>
+            </span>
+            {pkg.pricePerGuest > 0 && (
+              <span>
+                მოგება/სტუმარი:{" "}
+                <b style={{ color: margin >= 0 ? "var(--green)" : "var(--red)" }}>
+                  {gel(margin, 2)}
+                </b>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PackageDishRow({
+  line,
+  dish,
+  ingredientsById,
+}: {
+  line: { id: number; dishId: number; qtyPerGuest: number };
+  dish: MenuDish;
+  ingredientsById: Map<number, MenuIngredient>;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [qty, setQty] = useState(String(line.qtyPerGuest));
+  const perGuestCost = dishCost(dish.lines, ingredientsById) * line.qtyPerGuest;
+
+  return (
+    <tr>
+      <td className="font-semibold">{dish.name}</td>
+      <td>
+        <input
+          type="number"
+          className="input !w-24 !py-1.5"
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          onBlur={() => {
+            const v = Number(qty);
+            if (v > 0 && v !== line.qtyPerGuest)
+              startTransition(() => updatePackageDish(line.id, v));
+          }}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        />
+      </td>
+      <td className="font-bold">{gel(perGuestCost, 2)}</td>
+      <td>
+        <div className="flex justify-end">
+          <button
+            className="btn btn-danger !px-2.5 !py-1.5"
+            disabled={pending}
+            onClick={() => startTransition(() => deletePackageDish(line.id))}
           >
             <Trash2 size={15} />
           </button>

@@ -12,6 +12,8 @@ import {
   ingredients,
   inventoryItems,
   ledger,
+  packageDishes,
+  packages,
   payments,
   settings,
   staff,
@@ -29,6 +31,7 @@ import type {
   MenuCategory,
   MenuDish,
   MenuIngredient,
+  MenuPackage,
 } from "./menu-shared";
 
 export { bookingTotal, type BookingRow };
@@ -92,6 +95,37 @@ export async function getMenuData(venueId: number): Promise<{
         .map((l) => ({ id: l.id, itemId: l.itemId, qtyPerPortion: l.qtyPerPortion })),
     })),
   };
+}
+
+export async function getPackages(venueId: number): Promise<MenuPackage[]> {
+  const pkgRows = await db
+    .select()
+    .from(packages)
+    .where(eq(packages.venueId, venueId))
+    .orderBy(asc(packages.name));
+  if (pkgRows.length === 0) return [];
+
+  const pkgDishes = await db
+    .select()
+    .from(packageDishes)
+    .where(
+      inArray(
+        packageDishes.packageId,
+        pkgRows.map((p) => p.id),
+      ),
+    );
+
+  return pkgRows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    pricePerGuest: p.pricePerGuest,
+    manualCostPerGuest: p.manualCostPerGuest,
+    description: p.description,
+    active: p.active,
+    dishes: pkgDishes
+      .filter((pd) => pd.packageId === p.id)
+      .map((pd) => ({ id: pd.id, dishId: pd.dishId, qtyPerGuest: pd.qtyPerGuest })),
+  }));
 }
 
 export type FixedCostRow = {
@@ -180,6 +214,7 @@ export type BookingDetail = BookingRow & {
   startTime: string | null;
   endTime: string | null;
   clientId: number | null;
+  packageId: number | null;
   payments: BookingPayment[];
   expenses: BookingExpense[];
 };
@@ -204,6 +239,7 @@ export async function getBookingDetail(
       status: bookings.status,
       notes: bookings.notes,
       clientId: bookings.clientId,
+      packageId: bookings.packageId,
       clientName: clients.name,
       clientPhone: clients.phone,
     })

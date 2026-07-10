@@ -102,6 +102,9 @@ export const bookings = pgTable(
     clientId: integer("client_id").references(() => clients.id, {
       onDelete: "set null",
     }),
+    packageId: integer("package_id").references(() => packages.id, {
+      onDelete: "set null",
+    }),
     title: text("title").notNull(),
     eventType: eventTypeEnum("event_type").notNull().default("other"),
     eventDate: date("event_date").notNull(),

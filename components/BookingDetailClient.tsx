@@ -4,15 +4,19 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
+  CheckCircle2,
   CircleDollarSign,
   HandCoins,
+  Package as PackageIcon,
   Pencil,
   Plus,
   Receipt,
   Save,
   Trash2,
   TrendingUp,
+  UtensilsCrossed,
   X,
 } from "lucide-react";
 import {
@@ -21,6 +25,7 @@ import {
   deleteBooking,
   deleteBookingLedgerEntry,
   deletePayment,
+  setBookingPackage,
   updateBooking,
   updateBookingStatus,
 } from "@/lib/actions";
@@ -31,14 +36,31 @@ import {
   STATUS_LABELS,
   STATUS_ORDER,
 } from "@/lib/booking-shared";
+import {
+  inventoryNeeds,
+  packageCostPerGuest,
+  packageOrder,
+  type InventoryItem,
+  type MenuDish,
+  type MenuIngredient,
+  type MenuPackage,
+} from "@/lib/menu-shared";
 import type { BookingDetail } from "@/lib/queries";
 import { gel, fmtDate, fmtDateShort, todayISO } from "@/lib/format";
-import { PageHeader, Section, StatCard, StatusBadge, EVENT_TYPE_LABELS } from "@/components/ui";
+import { PageHeader, Section, StatCard, StatusBadge, EmptyState, EVENT_TYPE_LABELS } from "@/components/ui";
 
 export default function BookingDetailClient({
   booking,
+  packages,
+  dishes,
+  ingredients,
+  inventoryItems,
 }: {
   booking: BookingDetail;
+  packages: MenuPackage[];
+  dishes: MenuDish[];
+  ingredients: MenuIngredient[];
+  inventoryItems: InventoryItem[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -139,7 +161,208 @@ export default function BookingDetailClient({
           <ExpensesPanel booking={booking} />
         </div>
       </div>
+
+      <div className="mt-6">
+        <PackagePanel
+          booking={booking}
+          packages={packages}
+          dishes={dishes}
+          ingredients={ingredients}
+          inventoryItems={inventoryItems}
+        />
+      </div>
     </>
+  );
+}
+
+// ---------------- Menu package + inventory needs ----------------
+
+function PackagePanel({
+  booking,
+  packages,
+  dishes,
+  ingredients,
+  inventoryItems,
+}: {
+  booking: BookingDetail;
+  packages: MenuPackage[];
+  dishes: MenuDish[];
+  ingredients: MenuIngredient[];
+  inventoryItems: InventoryItem[];
+}) {
+  const [pending, startTransition] = useTransition();
+  const dishesById = new Map(dishes.map((d) => [d.id, d]));
+  const ingredientsById = new Map(ingredients.map((i) => [i.id, i]));
+
+  const pkg = packages.find((p) => p.id === booking.packageId) ?? null;
+
+  if (packages.length === 0) {
+    return (
+      <Section title="მენიუ / პაკეტი">
+        <EmptyState
+          icon={UtensilsCrossed}
+          title="პაკეტები ჯერ არ არის"
+          text="შექმენი მენიუ-პაკეტი „კალკულაციებში“ (კერძებით) — მერე მიაბამ ამ ივენთს და ავტომატურად დაითვლება მენიუს ღირებულება და საჭირო ინვენტარი."
+          action={
+            <Link href="/calc" className="btn btn-ghost">
+              კალკულაციები
+            </Link>
+          }
+        />
+      </Section>
+    );
+  }
+
+  const costPerGuest = pkg
+    ? packageCostPerGuest(pkg, dishesById, ingredientsById)
+    : 0;
+  const menuCost = costPerGuest * booking.guestCount;
+  const menuRevenue = pkg ? pkg.pricePerGuest * booking.guestCount : 0;
+
+  const needs = pkg
+    ? inventoryNeeds(
+        packageOrder(pkg, dishesById, booking.guestCount),
+        inventoryItems,
+      )
+    : [];
+  const missing = needs.filter((n) => n.missing > 0);
+
+  return (
+    <Section
+      title="მენიუ / პაკეტი"
+      action={
+        <div className="flex items-center gap-2">
+          <select
+            className="select !w-auto !py-1.5"
+            value={pkg?.id ?? ""}
+            disabled={pending}
+            onChange={(e) =>
+              startTransition(() =>
+                setBookingPackage(
+                  booking.id,
+                  e.target.value ? Number(e.target.value) : null,
+                ),
+              )
+            }
+          >
+            <option value="">— პაკეტის გარეშე —</option>
+            {packages.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      }
+    >
+      {!pkg ? (
+        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-2)" }}>
+          <PackageIcon size={16} style={{ color: "var(--text-3)" }} />
+          აირჩიე პაკეტი ზემოთ — დაითვლება მენიუს ღირებულება {booking.guestCount}{" "}
+          სტუმარზე და საჭირო ინვენტარი.
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <MiniBox
+              label={`მენიუს ღირ. (${booking.guestCount} სტ.)`}
+              value={gel(menuCost)}
+              sub={`${gel(costPerGuest, 2)} / სტუმარი`}
+              color="var(--gold)"
+            />
+            <MiniBox
+              label="მენიუს შემოსავალი"
+              value={gel(menuRevenue)}
+              sub={pkg.pricePerGuest ? `${gel(pkg.pricePerGuest, 2)} / სტუმარი` : "ფასი მითითებული არაა"}
+              color="var(--text)"
+            />
+            <MiniBox
+              label="მენიუს მოგება"
+              value={gel(menuRevenue - menuCost)}
+              sub={pkg.dishes.length + " კერძი"}
+              color={menuRevenue - menuCost >= 0 ? "var(--green)" : "var(--red)"}
+            />
+          </div>
+
+          <div className="mt-5">
+            <div className="mb-2 flex items-center gap-2 text-sm font-bold">
+              საჭირო ინვენტარი
+              {missing.length > 0 ? (
+                <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
+                  <AlertTriangle size={12} /> აკლია {missing.length}
+                </span>
+              ) : needs.length > 0 ? (
+                <span className="badge" style={{ background: "var(--green-soft)", color: "var(--green)" }}>
+                  <CheckCircle2 size={12} /> საკმარისია
+                </span>
+              ) : null}
+            </div>
+
+            {needs.length === 0 ? (
+              <p className="text-sm" style={{ color: "var(--text-3)" }}>
+                პაკეტის კერძებს ინვენტარი არ აქვთ მიბმული — „კალკულაციებში“ კერძის
+                ბარათზე მიუთითე (მაგ. ლობიანი → 1 თეფში).
+              </p>
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>ინვენტარი</th>
+                      <th>საჭიროა</th>
+                      <th>მარაგშია</th>
+                      <th>აკლია</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {needs.map(({ item, required, missing: miss }) => (
+                      <tr key={item.id}>
+                        <td className="font-semibold">{item.name}</td>
+                        <td>
+                          {Math.round(required * 100) / 100} {item.unit}
+                        </td>
+                        <td>
+                          {item.quantity} {item.unit}
+                        </td>
+                        <td>
+                          {miss > 0 ? (
+                            <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
+                              {Math.round(miss * 100) / 100} {item.unit}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--green)" }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+
+function MiniBox({
+  label,
+  value,
+  sub,
+  color,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  color: string;
+}) {
+  return (
+    <div className="rounded-xl px-4 py-3" style={{ background: "var(--surface-2)" }}>
+      <div className="text-xs" style={{ color: "var(--text-3)" }}>{label}</div>
+      <div className="mt-1 text-lg font-extrabold" style={{ color }}>{value}</div>
+      <div className="text-xs" style={{ color: "var(--text-3)" }}>{sub}</div>
+    </div>
   );
 }
 

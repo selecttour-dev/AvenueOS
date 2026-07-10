@@ -565,6 +565,86 @@ export async function reopenDay(entryDate: string) {
   revalidatePath("/");
 }
 
+// ---------- packages ----------
+
+export async function createPackage(input: {
+  name: string;
+  pricePerGuest?: number;
+  description?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !input.name.trim()) return;
+  await db.insert(packages).values({
+    venueId,
+    name: input.name.trim(),
+    pricePerGuest: input.pricePerGuest || 0,
+    description: input.description?.trim() || null,
+  });
+  revalidatePath("/calc");
+}
+
+export async function updatePackage(
+  id: number,
+  input: { name?: string; pricePerGuest?: number; description?: string | null },
+) {
+  await db
+    .update(packages)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.pricePerGuest !== undefined
+        ? { pricePerGuest: input.pricePerGuest }
+        : {}),
+      ...(input.description !== undefined
+        ? { description: input.description?.trim() || null }
+        : {}),
+    })
+    .where(eq(packages.id, id));
+  revalidatePath("/calc");
+  revalidatePath("/bookings");
+}
+
+export async function deletePackage(id: number) {
+  await db.delete(packages).where(eq(packages.id, id));
+  revalidatePath("/calc");
+  revalidatePath("/bookings");
+}
+
+export async function addPackageDish(
+  packageId: number,
+  dishId: number,
+  qtyPerGuest: number,
+) {
+  if (!qtyPerGuest || qtyPerGuest <= 0) return;
+  await db.insert(packageDishes).values({ packageId, dishId, qtyPerGuest });
+  revalidatePath("/calc");
+}
+
+export async function updatePackageDish(lineId: number, qtyPerGuest: number) {
+  if (!qtyPerGuest || qtyPerGuest <= 0) return;
+  await db
+    .update(packageDishes)
+    .set({ qtyPerGuest })
+    .where(eq(packageDishes.id, lineId));
+  revalidatePath("/calc");
+}
+
+export async function deletePackageDish(lineId: number) {
+  await db.delete(packageDishes).where(eq(packageDishes.id, lineId));
+  revalidatePath("/calc");
+}
+
+export async function setBookingPackage(
+  bookingId: number,
+  packageId: number | null,
+) {
+  await db
+    .update(bookings)
+    .set({ packageId })
+    .where(eq(bookings.id, bookingId));
+  revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/bookings");
+}
+
 // ---------- forecast / business-model params ----------
 
 export async function saveModelParams(params: Record<string, number>) {

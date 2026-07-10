@@ -39,6 +39,51 @@ export type InventoryItem = {
   minQty: number | null;
 };
 
+export type PackageDishLine = {
+  id: number;
+  dishId: number;
+  qtyPerGuest: number;
+};
+
+export type MenuPackage = {
+  id: number;
+  name: string;
+  pricePerGuest: number;
+  manualCostPerGuest: number | null;
+  description: string | null;
+  active: boolean;
+  dishes: PackageDishLine[];
+};
+
+/** Cost per guest of a package = Σ dishCost × portions/guest (recipe-driven);
+ *  falls back to manualCostPerGuest when the package has no linked dishes. */
+export function packageCostPerGuest(
+  pkg: MenuPackage,
+  dishesById: Map<number, MenuDish>,
+  ingredientsById: Map<number, MenuIngredient>,
+): number {
+  if (pkg.dishes.length === 0) return pkg.manualCostPerGuest ?? 0;
+  return pkg.dishes.reduce((sum, pd) => {
+    const dish = dishesById.get(pd.dishId);
+    if (!dish) return sum;
+    return sum + dishCost(dish.lines, ingredientsById) * pd.qtyPerGuest;
+  }, 0);
+}
+
+/** Build a dish-portion order from a package for a given guest count. */
+export function packageOrder(
+  pkg: MenuPackage,
+  dishesById: Map<number, MenuDish>,
+  guests: number,
+): { dish: MenuDish; portions: number }[] {
+  return pkg.dishes
+    .map((pd) => {
+      const dish = dishesById.get(pd.dishId);
+      return dish ? { dish, portions: pd.qtyPerGuest * guests } : null;
+    })
+    .filter((x): x is { dish: MenuDish; portions: number } => x !== null);
+}
+
 /** Inventory shortfall for an order: dish portions → required items vs stock. */
 export function inventoryNeeds(
   order: { dish: MenuDish; portions: number }[],
