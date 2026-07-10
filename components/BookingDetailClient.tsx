@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Copy,
+  Eye,
+  EyeOff,
   HandCoins,
   Package as PackageIcon,
   Pencil,
@@ -220,6 +222,8 @@ function MenuPanel({
   const [mode, setMode] = useState<"custom" | "package">(
     booking.packageId ? "package" : "custom",
   );
+  // Costs/inventory hidden by default — a guest may be looking at the screen.
+  const [showCost, setShowCost] = useState(false);
 
   if (dishes.length === 0) {
     return (
@@ -242,21 +246,31 @@ function MenuPanel({
     <Section
       title="ივენთის მენიუ"
       action={
-        <div className="flex rounded-lg p-1" style={{ background: "var(--surface-2)" }}>
-          {(["custom", "package"] as const).map((m) => (
-            <button
-              key={m}
-              className="rounded-md px-3 py-1 text-sm font-semibold transition-colors"
-              style={
-                mode === m
-                  ? { background: "var(--surface)", color: "var(--text)", boxShadow: "var(--shadow-sm)" }
-                  : { background: "transparent", color: "var(--text-2)" }
-              }
-              onClick={() => setMode(m)}
-            >
-              {m === "custom" ? "ინდივიდუალური" : "პაკეტი"}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <button
+            className="btn btn-ghost !py-1.5"
+            title={showCost ? "ღირებულების დამალვა" : "ღირებულების ჩვენება"}
+            onClick={() => setShowCost((s) => !s)}
+          >
+            {showCost ? <EyeOff size={15} /> : <Eye size={15} />}
+            {showCost ? "ღირ. დამალვა" : "ღირებულება"}
+          </button>
+          <div className="flex rounded-lg p-1" style={{ background: "var(--surface-2)" }}>
+            {(["custom", "package"] as const).map((m) => (
+              <button
+                key={m}
+                className="rounded-md px-3 py-1 text-sm font-semibold transition-colors"
+                style={
+                  mode === m
+                    ? { background: "var(--surface)", color: "var(--text)", boxShadow: "var(--shadow-sm)" }
+                    : { background: "transparent", color: "var(--text-2)" }
+                }
+                onClick={() => setMode(m)}
+              >
+                {m === "custom" ? "ინდივიდუალური" : "პაკეტი"}
+              </button>
+            ))}
+          </div>
         </div>
       }
     >
@@ -269,6 +283,7 @@ function MenuPanel({
           dishesById={dishesById}
           ingredientsById={ingredientsById}
           inventoryItems={inventoryItems}
+          showCost={showCost}
         />
       ) : (
         <PackageMenu
@@ -279,6 +294,7 @@ function MenuPanel({
           dishesById={dishesById}
           ingredientsById={ingredientsById}
           inventoryItems={inventoryItems}
+          showCost={showCost}
           onCustomized={() => setMode("custom")}
         />
       )}
@@ -294,6 +310,7 @@ function CustomMenu({
   dishesById,
   ingredientsById,
   inventoryItems,
+  showCost,
 }: {
   booking: BookingDetail;
   venueName: string;
@@ -302,6 +319,7 @@ function CustomMenu({
   dishesById: Map<number, MenuDish>;
   ingredientsById: Map<number, MenuIngredient>;
   inventoryItems: InventoryItem[];
+  showCost: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [query, setQuery] = useState("");
@@ -418,7 +436,7 @@ function CustomMenu({
                   <th>რაოდენობა</th>
                   <th>ერთეული</th>
                   <th>სულ პორცია</th>
-                  <th>ღირებულება</th>
+                  {showCost && <th>ღირებულება</th>}
                   <th></th>
                 </tr>
               </thead>
@@ -434,6 +452,7 @@ function CustomMenu({
                       guests={guests}
                       bookingId={booking.id}
                       ingredientsById={ingredientsById}
+                      showCost={showCost}
                     />
                   );
                 })}
@@ -441,25 +460,29 @@ function CustomMenu({
             </table>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <MiniBox
-              label={`მენიუს ღირ. (${booking.guestCount} სტ.)`}
-              value={gel(menuCost)}
-              sub={`${gel(costPerGuest, 2)} / სტუმარი`}
-              color="var(--gold)"
-            />
-            <MiniBox
-              label="ფასი vs ღირებულება"
-              value={booking.pricePerGuest ? gel(booking.pricePerGuest - costPerGuest, 2) : "—"}
-              sub={
-                booking.pricePerGuest
-                  ? `ფასი ${gel(booking.pricePerGuest, 2)} − მენიუ ${gel(costPerGuest, 2)} / სტ.`
-                  : "ჯავშნის ფასი მითითებული არაა"
-              }
-              color={booking.pricePerGuest - costPerGuest >= 0 ? "var(--green)" : "var(--red)"}
-            />
-          </div>
-          <InventoryNeeds needs={needs} />
+          {showCost && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <MiniBox
+                  label={`მენიუს ღირ. (${booking.guestCount} სტ.)`}
+                  value={gel(menuCost)}
+                  sub={`${gel(costPerGuest, 2)} / სტუმარი`}
+                  color="var(--gold)"
+                />
+                <MiniBox
+                  label="ფასი vs ღირებულება"
+                  value={booking.pricePerGuest ? gel(booking.pricePerGuest - costPerGuest, 2) : "—"}
+                  sub={
+                    booking.pricePerGuest
+                      ? `ფასი ${gel(booking.pricePerGuest, 2)} − მენიუ ${gel(costPerGuest, 2)} / სტ.`
+                      : "ჯავშნის ფასი მითითებული არაა"
+                  }
+                  color={booking.pricePerGuest - costPerGuest >= 0 ? "var(--green)" : "var(--red)"}
+                />
+              </div>
+              <InventoryNeeds needs={needs} />
+            </>
+          )}
           <MenuExport
             venueName={venueName}
             booking={booking}
@@ -479,12 +502,14 @@ function CustomMenuRow({
   guests,
   bookingId,
   ingredientsById,
+  showCost,
 }: {
   line: { id: number; dishId: number; qty: number; perGuest: boolean };
   dish: MenuDish;
   guests: number;
   bookingId: number;
   ingredientsById: Map<number, MenuIngredient>;
+  showCost: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [qty, setQty] = useState(String(line.qty));
@@ -525,7 +550,7 @@ function CustomMenuRow({
         </select>
       </td>
       <td className="font-semibold">{Math.round(portions * 100) / 100}</td>
-      <td className="font-bold">{gel(lineCost, 2)}</td>
+      {showCost && <td className="font-bold">{gel(lineCost, 2)}</td>}
       <td>
         <div className="flex justify-end">
           <button
@@ -549,6 +574,7 @@ function PackageMenu({
   dishesById,
   ingredientsById,
   inventoryItems,
+  showCost,
   onCustomized,
 }: {
   booking: BookingDetail;
@@ -558,6 +584,7 @@ function PackageMenu({
   dishesById: Map<number, MenuDish>;
   ingredientsById: Map<number, MenuIngredient>;
   inventoryItems: InventoryItem[];
+  showCost: boolean;
   onCustomized: () => void;
 }) {
   const [pending, startTransition] = useTransition();
@@ -606,27 +633,31 @@ function PackageMenu({
         </div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <MiniBox
-              label={`მენიუს ღირ. (${booking.guestCount} სტ.)`}
-              value={gel(menuCost)}
-              sub={`${gel(costPerGuest, 2)} / სტუმარი`}
-              color="var(--gold)"
-            />
-            <MiniBox
-              label="მენიუს შემოსავალი"
-              value={gel(menuRevenue)}
-              sub={pkg.pricePerGuest ? `${gel(pkg.pricePerGuest, 2)} / სტუმარი` : "ფასი მითითებული არაა"}
-              color="var(--text)"
-            />
-            <MiniBox
-              label="მენიუს მოგება"
-              value={gel(menuRevenue - menuCost)}
-              sub={pkg.dishes.length + " კერძი"}
-              color={menuRevenue - menuCost >= 0 ? "var(--green)" : "var(--red)"}
-            />
-          </div>
-          <InventoryNeeds needs={needs} />
+          {showCost && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <MiniBox
+                  label={`მენიუს ღირ. (${booking.guestCount} სტ.)`}
+                  value={gel(menuCost)}
+                  sub={`${gel(costPerGuest, 2)} / სტუმარი`}
+                  color="var(--gold)"
+                />
+                <MiniBox
+                  label="მენიუს შემოსავალი"
+                  value={gel(menuRevenue)}
+                  sub={pkg.pricePerGuest ? `${gel(pkg.pricePerGuest, 2)} / სტუმარი` : "ფასი მითითებული არაა"}
+                  color="var(--text)"
+                />
+                <MiniBox
+                  label="მენიუს მოგება"
+                  value={gel(menuRevenue - menuCost)}
+                  sub={pkg.dishes.length + " კერძი"}
+                  color={menuRevenue - menuCost >= 0 ? "var(--green)" : "var(--red)"}
+                />
+              </div>
+              <InventoryNeeds needs={needs} />
+            </>
+          )}
 
           <div
             className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl px-4 py-3"
