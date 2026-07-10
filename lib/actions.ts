@@ -22,6 +22,7 @@ import {
   packageDishes,
   packages,
   payments,
+  purchases,
   services,
   settings,
   staff,
@@ -709,6 +710,138 @@ export async function applyPackageToBookingMenu(
 
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/bookings");
+}
+
+// ---------- suppliers / purchases ----------
+
+export async function createSupplier(input: {
+  name: string;
+  category?: string;
+  contactPerson?: string;
+  phone?: string;
+  notes?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !input.name.trim()) return;
+  await db.insert(suppliers).values({
+    venueId,
+    name: input.name.trim(),
+    category: input.category?.trim() || null,
+    contactPerson: input.contactPerson?.trim() || null,
+    phone: input.phone?.trim() || null,
+    notes: input.notes?.trim() || null,
+  });
+  revalidatePath("/suppliers");
+}
+
+export async function updateSupplier(
+  id: number,
+  input: {
+    name?: string;
+    category?: string | null;
+    contactPerson?: string | null;
+    phone?: string | null;
+    notes?: string | null;
+    active?: boolean;
+  },
+) {
+  await db
+    .update(suppliers)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.category !== undefined
+        ? { category: input.category?.trim() || null }
+        : {}),
+      ...(input.contactPerson !== undefined
+        ? { contactPerson: input.contactPerson?.trim() || null }
+        : {}),
+      ...(input.phone !== undefined
+        ? { phone: input.phone?.trim() || null }
+        : {}),
+      ...(input.notes !== undefined
+        ? { notes: input.notes?.trim() || null }
+        : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+    })
+    .where(eq(suppliers.id, id));
+  revalidatePath("/suppliers");
+}
+
+export async function deleteSupplier(id: number) {
+  await db.delete(suppliers).where(eq(suppliers.id, id));
+  revalidatePath("/suppliers");
+}
+
+function purchaseStatus(total: number, paid: number) {
+  if (paid >= total && total > 0) return "paid" as const;
+  if (paid > 0) return "partial" as const;
+  return "unpaid" as const;
+}
+
+export async function createPurchase(input: {
+  supplierId: number | null;
+  purchaseDate: string;
+  total: number;
+  paid: number;
+  note?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !input.purchaseDate) return { error: "თარიღი აუცილებელია" };
+  const total = input.total || 0;
+  const paid = input.paid || 0;
+  await db.insert(purchases).values({
+    venueId,
+    supplierId: input.supplierId ?? null,
+    purchaseDate: input.purchaseDate,
+    total,
+    paid,
+    status: purchaseStatus(total, paid),
+    note: input.note?.trim() || null,
+  });
+  revalidatePath("/suppliers");
+  return { ok: true };
+}
+
+export async function updatePurchase(
+  id: number,
+  input: { total?: number; paid?: number; note?: string | null },
+) {
+  const [cur] = await db
+    .select({ total: purchases.total, paid: purchases.paid })
+    .from(purchases)
+    .where(eq(purchases.id, id));
+  if (!cur) return;
+  const total = input.total ?? cur.total;
+  const paid = input.paid ?? cur.paid;
+  await db
+    .update(purchases)
+    .set({
+      total,
+      paid,
+      status: purchaseStatus(total, paid),
+      ...(input.note !== undefined ? { note: input.note?.trim() || null } : {}),
+    })
+    .where(eq(purchases.id, id));
+  revalidatePath("/suppliers");
+}
+
+/** Mark a purchase fully paid (paid = total). */
+export async function settlePurchase(id: number) {
+  const [cur] = await db
+    .select({ total: purchases.total })
+    .from(purchases)
+    .where(eq(purchases.id, id));
+  if (!cur) return;
+  await db
+    .update(purchases)
+    .set({ paid: cur.total, status: purchaseStatus(cur.total, cur.total) })
+    .where(eq(purchases.id, id));
+  revalidatePath("/suppliers");
+}
+
+export async function deletePurchase(id: number) {
+  await db.delete(purchases).where(eq(purchases.id, id));
+  revalidatePath("/suppliers");
 }
 
 // ---------- forecast / business-model params ----------

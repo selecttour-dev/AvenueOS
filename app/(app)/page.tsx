@@ -11,6 +11,7 @@ import {
   Plus,
   Target,
   TrendingUp,
+  Truck,
   Wallet,
 } from "lucide-react";
 import { getActiveVenue } from "@/lib/venue";
@@ -50,6 +51,12 @@ export default async function DashboardPage() {
       icon: Lock,
       text: `${s.unclosedDaysCount} დღე დახურვის მომლოდინე`,
       hint: "Z-რეპორტი",
+    },
+    s.supplierDebt > 0.01 && {
+      href: "/suppliers",
+      icon: Truck,
+      text: "მომწოდებლების ვალი",
+      hint: gel(s.supplierDebt),
     },
   ].filter(Boolean) as {
     href: string;

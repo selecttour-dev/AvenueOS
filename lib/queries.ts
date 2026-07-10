@@ -16,8 +16,10 @@ import {
   packageDishes,
   packages,
   payments,
+  purchases,
   settings,
   staff,
+  suppliers,
 } from "@/db/schema";
 import {
   PARAM_KEYS,
@@ -304,6 +306,78 @@ export async function getBookingDetail(
       perGuest: m.perGuest,
     })),
   };
+}
+
+// ---------- suppliers / purchases ----------
+
+export type SupplierRow = {
+  id: number;
+  name: string;
+  category: string | null;
+  contactPerson: string | null;
+  phone: string | null;
+  notes: string | null;
+  active: boolean;
+  totalPurchased: number;
+  totalPaid: number;
+  debt: number;
+  purchaseCount: number;
+};
+
+export type PurchaseRow = {
+  id: number;
+  supplierId: number | null;
+  supplierName: string | null;
+  purchaseDate: string;
+  total: number;
+  paid: number;
+  status: string;
+  note: string | null;
+};
+
+export async function getSuppliers(venueId: number): Promise<SupplierRow[]> {
+  const rows = await db
+    .select({
+      id: suppliers.id,
+      name: suppliers.name,
+      category: suppliers.category,
+      contactPerson: suppliers.contactPerson,
+      phone: suppliers.phone,
+      notes: suppliers.notes,
+      active: suppliers.active,
+      totalPurchased: sql<number>`coalesce(sum(${purchases.total}), 0)::float`,
+      totalPaid: sql<number>`coalesce(sum(${purchases.paid}), 0)::float`,
+      purchaseCount: sql<number>`count(${purchases.id})::int`,
+    })
+    .from(suppliers)
+    .leftJoin(purchases, eq(purchases.supplierId, suppliers.id))
+    .where(eq(suppliers.venueId, venueId))
+    .groupBy(suppliers.id)
+    .orderBy(desc(suppliers.active), asc(suppliers.name));
+
+  return rows.map((r) => ({
+    ...r,
+    debt: r.totalPurchased - r.totalPaid,
+  }));
+}
+
+export async function getPurchases(venueId: number): Promise<PurchaseRow[]> {
+  const rows = await db
+    .select({
+      id: purchases.id,
+      supplierId: purchases.supplierId,
+      supplierName: suppliers.name,
+      purchaseDate: purchases.purchaseDate,
+      total: purchases.total,
+      paid: purchases.paid,
+      status: purchases.status,
+      note: purchases.note,
+    })
+    .from(purchases)
+    .leftJoin(suppliers, eq(purchases.supplierId, suppliers.id))
+    .where(eq(purchases.venueId, venueId))
+    .orderBy(desc(purchases.purchaseDate), desc(purchases.id));
+  return rows;
 }
 
 // ---------- daily register ----------
@@ -668,7 +742,7 @@ export async function getDashboardStats(venueId: number) {
   const monthStart = `${y}-${pad(m)}-01`;
   const monthEnd = `${y}-${pad(m)}-${pad(daysInMonth)}`;
 
-  const [all, monthLedgerRows, closes, lowStockRows, forecast] =
+  const [all, monthLedgerRows, closes, lowStockRows, forecast, supplierDebtRow] =
     await Promise.all([
       getBookings(venueId),
       db
@@ -706,6 +780,12 @@ export async function getDashboardStats(venueId: number) {
           ),
         ),
       getForecastData(venueId),
+      db
+        .select({
+          debt: sql<number>`coalesce(sum(greatest(${purchases.total} - ${purchases.paid}, 0)), 0)::float`,
+        })
+        .from(purchases)
+        .where(eq(purchases.venueId, venueId)),
     ]);
 
   const active = all.filter((b) => b.status !== "cancelled");
@@ -772,6 +852,7 @@ export async function getDashboardStats(venueId: number) {
     today,
     lowStockCount: lowStockRows.length,
     unclosedDaysCount,
+    supplierDebt: supplierDebtRow[0]?.debt ?? 0,
     breakEven,
     contribution,
     monthlyFixed: forecast.monthlyFixed,

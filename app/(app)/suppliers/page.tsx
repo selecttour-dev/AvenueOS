@@ -1,20 +1,15 @@
-import { Truck } from "lucide-react";
-import ModuleStub from "@/components/ModuleStub";
+import { getActiveVenueId } from "@/lib/venue";
+import { getSuppliers, getPurchases } from "@/lib/queries";
+import SuppliersClient from "@/components/SuppliersClient";
 
-export default function SuppliersPage() {
-  return (
-    <ModuleStub
-      icon={Truck}
-      title="მომწოდებლები"
-      subtitle="მომწოდებლების ბაზა და შესყიდვების აღრიცხვა"
-      description="ყველა მომწოდებელი ერთ სიაში — კონტაქტები, კატეგორიები, შესყიდვების ისტორია და გადაუხდელი ვალები."
-      features={[
-        "მომწოდებლების ბაზა კატეგორიებით (პროდუქტი, სასმელი, სერვისი)",
-        "შესყიდვების ჟურნალი თარიღით და თანხით",
-        "გადახდის სტატუსი — გადახდილი / ნაწილობრივი / ვალი",
-        "ვალების ჯამი მომწოდებლების მიხედვით",
-        "კავშირი ინგრედიენტებთან — ფასის ცვლილება აისახება კალკულაციაში",
-      ]}
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function SuppliersPage() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return null;
+  const [suppliers, purchases] = await Promise.all([
+    getSuppliers(venueId),
+    getPurchases(venueId),
+  ]);
+  return <SuppliersClient suppliers={suppliers} purchases={purchases} />;
 }
