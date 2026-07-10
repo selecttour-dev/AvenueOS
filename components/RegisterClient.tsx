@@ -7,6 +7,7 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   CalendarDays,
+  CalendarHeart,
   ChevronLeft,
   ChevronRight,
   Lock,
@@ -123,6 +124,18 @@ function DayTab({ day }: { day: RegisterDay }) {
 
   const go = (iso: string) => router.push(`/register?date=${iso}`);
 
+  // Events happening on this exact day → entries default-link to them.
+  const dayEvents = day.bookings.filter((b) => b.eventDate === day.date);
+  const eventTotals = new Map<number, { income: number; cost: number }>();
+  for (const e of day.entries) {
+    if (e.bookingId == null) continue;
+    const t = e.amount * e.qty;
+    const cur = eventTotals.get(e.bookingId) ?? { income: 0, cost: 0 };
+    if (e.type === "income") cur.income += t;
+    else cur.cost += t;
+    eventTotals.set(e.bookingId, cur);
+  }
+
   return (
     <>
       {/* date navigation */}
@@ -158,6 +171,42 @@ function DayTab({ day }: { day: RegisterDay }) {
         )}
       </div>
 
+      {dayEvents.length > 0 && (
+        <div
+          className="mb-5 rounded-xl px-4 py-3"
+          style={{ background: "var(--primary-soft)", border: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-2 text-sm font-bold" style={{ color: "var(--primary-strong)" }}>
+            <CalendarHeart size={16} /> ამ დღეს ივენთია
+          </div>
+          <div className="mt-2 flex flex-col gap-2">
+            {dayEvents.map((b) => {
+              const t = eventTotals.get(b.id);
+              return (
+                <div key={b.id} className="flex flex-wrap items-center justify-between gap-2">
+                  <Link
+                    href={`/bookings/${b.id}`}
+                    className="font-semibold underline"
+                    style={{ color: "var(--primary-strong)" }}
+                  >
+                    {b.title}
+                  </Link>
+                  <span className="text-xs" style={{ color: "var(--text-2)" }}>
+                    {t
+                      ? `ამ დღეს დაფიქსირდა: შემოსავალი ${gel(t.income)} · ხარჯი ${gel(t.cost)}`
+                      : "ჩანაწერები ავტომ. მიება ამ ივენთს"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs" style={{ color: "var(--text-3)" }}>
+            ქვემოთ დამატებული შემოსავალი/ხარჯი ავტომატურად ერთვის ამ ივენთს — ჩანს
+            ჯავშნის გვერდზეც.
+          </p>
+        </div>
+      )}
+
       <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={ArrowUpCircle} label="შემოსავალი" value={gel(day.income)} tone="green" />
         <StatCard icon={UsersRound} label="ხელფასი" value={gel(day.wages)} tone="red" />
@@ -172,7 +221,9 @@ function DayTab({ day }: { day: RegisterDay }) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="grid gap-6">
-          {!locked && <QuickAddPanel day={day} />}
+          {!locked && (
+            <QuickAddPanel key={day.date} day={day} dayEvents={dayEvents} />
+          )}
           <EntriesPanel day={day} locked={locked} />
         </div>
         <ZReportPanel day={day} />
@@ -181,17 +232,29 @@ function DayTab({ day }: { day: RegisterDay }) {
   );
 }
 
-function QuickAddPanel({ day }: { day: RegisterDay }) {
+function QuickAddPanel({
+  day,
+  dayEvents,
+}: {
+  day: RegisterDay;
+  dayEvents: RegisterDay["bookings"];
+}) {
   const [pending, startTransition] = useTransition();
   const [type, setType] = useState<"income" | "expense" | "wage">("income");
   const [category, setCategory] = useState("");
   const [amount, setAmount] = useState("");
   const [qty, setQty] = useState("1");
   const [staffId, setStaffId] = useState("");
-  const [bookingId, setBookingId] = useState("");
+  // If exactly one event happens this day, attach entries to it by default.
+  const [bookingId, setBookingId] = useState(
+    dayEvents.length === 1 ? String(dayEvents[0].id) : "",
+  );
   const [note, setNote] = useState("");
 
   const activeStaff = day.staff.filter((s) => s.active);
+  const otherBookings = day.bookings.filter(
+    (b) => !dayEvents.some((e) => e.id === b.id),
+  );
 
   const add = () =>
     startTransition(async () => {
@@ -288,14 +351,29 @@ function QuickAddPanel({ day }: { day: RegisterDay }) {
           </div>
         </div>
         <div>
-          <label className="label">ივენთი (არასავალდებულო)</label>
+          <label className="label">
+            ივენთი {dayEvents.length ? "" : "(არასავალდებულო)"}
+          </label>
           <select className="select" value={bookingId} onChange={(e) => setBookingId(e.target.value)}>
             <option value="">— არცერთი —</option>
-            {day.bookings.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.title}
-              </option>
-            ))}
+            {dayEvents.length > 0 && (
+              <optgroup label="ამ დღის ივენთები">
+                {dayEvents.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.title}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {otherBookings.length > 0 && (
+              <optgroup label="სხვა ჯავშნები">
+                {otherBookings.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.title} · {fmtDate(b.eventDate)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
         <div>
