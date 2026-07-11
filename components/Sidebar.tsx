@@ -13,7 +13,9 @@ import {
   Calculator,
   Settings,
   Building2,
+  LogOut,
 } from "lucide-react";
+import { logout } from "@/app/login/actions";
 
 const NAV = [
   { href: "/", label: "დაფა", icon: LayoutDashboard },
@@ -93,8 +95,15 @@ export default function Sidebar({
         })}
       </nav>
 
+      <form action={logout} className="mt-3">
+        <button type="submit" className="nav-item w-full" style={{ color: "var(--text-2)" }}>
+          <LogOut size={18} strokeWidth={2.1} />
+          გამოსვლა
+        </button>
+      </form>
+
       <div
-        className="mt-4 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed"
+        className="mt-3 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed"
         style={{ background: "var(--surface-2)", color: "var(--text-3)" }}
       >
         ყველა მონაცემი ინახება არჩეული ობიექტისთვის ცალ-ცალკე.

@@ -1,21 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AUTH_COOKIE, authToken } from "@/lib/auth";
 
-// Redirect to the venue picker when no venue cookie is set.
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Always allow static assets, API, and the login page itself.
   if (
-    pathname.startsWith("/select") ||
+    pathname.startsWith("/login") ||
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
     pathname.includes(".")
   ) {
     return NextResponse.next();
   }
-  if (!req.cookies.get("venue")?.value) {
+
+  // 1) Auth gate — must be logged in.
+  if (req.cookies.get(AUTH_COOKIE)?.value !== authToken()) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  // 2) Venue picker — must have an active venue selected.
+  if (!pathname.startsWith("/select") && !req.cookies.get("venue")?.value) {
     const url = req.nextUrl.clone();
     url.pathname = "/select";
     return NextResponse.redirect(url);
   }
+
   return NextResponse.next();
 }
 

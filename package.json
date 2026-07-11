@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev -p 4410",
     "build": "next build",
-    "start": "next start -p 4410",
+    "start": "next start -p ${PORT:-4410}",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "lint": "next lint"
