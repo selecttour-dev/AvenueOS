@@ -421,3 +421,20 @@ export const fixedCosts = pgTable("fixed_costs", {
   monthlyAmount: money("monthly_amount").notNull().default(0),
   active: boolean("active").notNull().default(true),
 });
+
+// One-off business costs paid from advances. kind:
+//  'operational' = deducted from overall profit
+//  'partner_advance' = money partners pre-took → recovered from future profit
+export const operationalExpenses = pgTable("operational_expenses", {
+  id: serial("id").primaryKey(),
+  venueId: integer("venue_id")
+    .notNull()
+    .references(() => venues.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  amount: money("amount").notNull().default(0),
+  kind: text("kind").notNull().default("operational"),
+  category: text("category"),
+  note: text("note"),
+  spentOn: date("spent_on"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

@@ -20,6 +20,7 @@ import {
   inventoryItems,
   ledger,
   menuTypes,
+  operationalExpenses,
   packageDishes,
   packages,
   payments,
@@ -913,6 +914,49 @@ export async function updateFixedCost(
 
 export async function deleteFixedCost(id: number) {
   await db.delete(fixedCosts).where(eq(fixedCosts.id, id));
+  revalidatePath("/finance");
+}
+
+// ---------- operational / common (one-off) expenses ----------
+
+export async function createOperationalExpense(input: {
+  name: string;
+  amount: number;
+  kind?: string;
+  category?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !input.name.trim()) return;
+  await db.insert(operationalExpenses).values({
+    venueId,
+    name: input.name.trim(),
+    amount: input.amount || 0,
+    kind: input.kind === "partner_advance" ? "partner_advance" : "operational",
+    category: input.category?.trim() || null,
+  });
+  revalidatePath("/finance");
+}
+
+export async function updateOperationalExpense(
+  id: number,
+  input: { name?: string; amount?: number; kind?: string; category?: string | null },
+) {
+  await db
+    .update(operationalExpenses)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.amount !== undefined ? { amount: input.amount } : {}),
+      ...(input.kind !== undefined ? { kind: input.kind } : {}),
+      ...(input.category !== undefined
+        ? { category: input.category?.trim() || null }
+        : {}),
+    })
+    .where(eq(operationalExpenses.id, id));
+  revalidatePath("/finance");
+}
+
+export async function deleteOperationalExpense(id: number) {
+  await db.delete(operationalExpenses).where(eq(operationalExpenses.id, id));
   revalidatePath("/finance");
 }
 

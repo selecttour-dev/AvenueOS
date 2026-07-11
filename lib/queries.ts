@@ -14,6 +14,7 @@ import {
   inventoryItems,
   ledger,
   menuTypes,
+  operationalExpenses,
   packageDishes,
   packages,
   payments,
@@ -162,6 +163,35 @@ export type FixedCostRow = {
   monthlyAmount: number;
   active: boolean;
 };
+
+export type OperationalExpenseRow = {
+  id: number;
+  name: string;
+  amount: number;
+  kind: string;
+  category: string | null;
+  note: string | null;
+  spentOn: string | null;
+};
+
+export async function getOperationalExpenses(
+  venueId: number,
+): Promise<OperationalExpenseRow[]> {
+  const rows = await db
+    .select()
+    .from(operationalExpenses)
+    .where(eq(operationalExpenses.venueId, venueId))
+    .orderBy(asc(operationalExpenses.kind), desc(operationalExpenses.amount));
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    amount: r.amount,
+    kind: r.kind,
+    category: r.category,
+    note: r.note,
+    spentOn: r.spentOn,
+  }));
+}
 
 export async function getFixedCosts(venueId: number): Promise<FixedCostRow[]> {
   const rows = await db
