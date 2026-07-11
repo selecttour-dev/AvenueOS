@@ -1275,6 +1275,59 @@ export async function deleteDish(id: number) {
   revalidatePath("/calc");
 }
 
+/** Clone a dish with its full recipe + inventory links (fast menu variants). */
+export async function duplicateDish(dishId: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  const [d] = await db
+    .select()
+    .from(dishes)
+    .where(and(eq(dishes.id, dishId), eq(dishes.venueId, venueId)));
+  if (!d) return;
+
+  const [copy] = await db
+    .insert(dishes)
+    .values({
+      venueId,
+      name: `${d.name} (ასლი)`,
+      categoryId: d.categoryId,
+      sellPrice: d.sellPrice,
+      active: d.active,
+    })
+    .returning({ id: dishes.id });
+
+  const [recipe, invLinks] = await Promise.all([
+    db.select().from(dishIngredients).where(eq(dishIngredients.dishId, dishId)),
+    db.select().from(dishInventory).where(eq(dishInventory.dishId, dishId)),
+  ]);
+  for (const r of recipe)
+    await db
+      .insert(dishIngredients)
+      .values({ dishId: copy.id, ingredientId: r.ingredientId, qty: r.qty });
+  for (const l of invLinks)
+    await db.insert(dishInventory).values({
+      dishId: copy.id,
+      itemId: l.itemId,
+      qtyPerPortion: l.qtyPerPortion,
+    });
+
+  revalidatePath("/calc");
+}
+
+export async function saveTargetFoodCostPct(pct: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  const clamped = Math.min(Math.max(pct || 0, 1), 100);
+  await db
+    .insert(settings)
+    .values({ venueId, key: "targetFoodCostPct", value: String(clamped) })
+    .onConflictDoUpdate({
+      target: [settings.venueId, settings.key],
+      set: { value: String(clamped) },
+    });
+  revalidatePath("/calc");
+}
+
 export async function addRecipeLine(
   dishId: number,
   ingredientId: number,

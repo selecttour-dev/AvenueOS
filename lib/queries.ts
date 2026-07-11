@@ -100,6 +100,20 @@ export async function getMenuData(venueId: number): Promise<{
   };
 }
 
+export async function getTargetFoodCostPct(venueId: number): Promise<number> {
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(
+      and(
+        eq(settings.venueId, venueId),
+        eq(settings.key, "targetFoodCostPct"),
+      ),
+    );
+  const n = row ? Number(row.value) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 32;
+}
+
 export async function getPackages(venueId: number): Promise<MenuPackage[]> {
   const pkgRows = await db
     .select()

@@ -6,9 +6,14 @@ import {
   Carrot,
   ChevronDown,
   ChevronRight,
+  Copy,
   PackageOpen,
+  Pencil,
   Plus,
+  Search,
+  Target,
   Trash2,
+  TrendingDown,
   UtensilsCrossed,
   Wand2,
   X,
@@ -28,6 +33,8 @@ import {
   deletePackage,
   deletePackageDish,
   deleteRecipeLine,
+  duplicateDish,
+  saveTargetFoodCostPct,
   updateDish,
   updateDishInventory,
   updateIngredient,
@@ -36,7 +43,6 @@ import {
   updateRecipeLine,
 } from "@/lib/actions";
 import {
-  DEFAULT_TARGET_FOOD_COST_PCT,
   QTY_LABELS,
   UNIT_LABELS,
   dishCost,
@@ -51,7 +57,7 @@ import {
   type MenuPackage,
 } from "@/lib/menu-shared";
 import { gel } from "@/lib/format";
-import { PageHeader, Section, EmptyState } from "@/components/ui";
+import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
 
 type Props = {
   ingredients: MenuIngredient[];
@@ -59,6 +65,7 @@ type Props = {
   dishes: MenuDish[];
   inventoryItems: InventoryItem[];
   packages: MenuPackage[];
+  targetPct: number;
 };
 
 export default function CalcClient({
@@ -67,6 +74,7 @@ export default function CalcClient({
   dishes,
   inventoryItems,
   packages,
+  targetPct,
 }: Props) {
   const [tab, setTab] = useState<"dishes" | "ingredients" | "packages">("dishes");
   const ingredientsById = useMemo(
@@ -78,6 +86,25 @@ export default function CalcClient({
     [dishes],
   );
 
+  const overview = useMemo(() => {
+    let fcSum = 0;
+    let fcCount = 0;
+    let unprofitable = 0;
+    for (const d of dishes) {
+      const cost = dishCost(d.lines, ingredientsById);
+      const fc = foodCostPct(cost, d.sellPrice);
+      if (fc != null) {
+        fcSum += fc;
+        fcCount += 1;
+      }
+      if (d.sellPrice > 0 && d.sellPrice - cost < 0) unprofitable += 1;
+    }
+    return {
+      avgFc: fcCount ? Math.round(fcSum / fcCount) : null,
+      unprofitable,
+    };
+  }, [dishes, ingredientsById]);
+
   return (
     <>
       <PageHeader
@@ -85,7 +112,26 @@ export default function CalcClient({
         subtitle="ინგრედიენტი → კერძი → პაკეტი → თვითღირებულება ავტომატურად"
       />
 
-      <div className="mb-5 flex flex-wrap gap-2">
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={UtensilsCrossed} label="კერძები" value={String(dishes.length)} tone="primary" />
+        <StatCard icon={Carrot} label="ინგრედიენტები" value={String(ingredients.length)} tone="gold" />
+        <StatCard
+          icon={Target}
+          label="საშ. food-cost"
+          value={overview.avgFc != null ? `${overview.avgFc}%` : "—"}
+          hint={`სამიზნე: ${targetPct}%`}
+          tone={overview.avgFc == null ? "default" : overview.avgFc <= targetPct ? "green" : "red"}
+        />
+        <StatCard
+          icon={TrendingDown}
+          label="წამგებიანი კერძი"
+          value={String(overview.unprofitable)}
+          hint={overview.unprofitable > 0 ? "ფასი < ღირებულება" : "ყველა მომგებიანია"}
+          tone={overview.unprofitable > 0 ? "red" : "green"}
+        />
+      </div>
+
+      <div className="mb-5 flex flex-wrap items-center gap-2">
         <TabButton
           active={tab === "dishes"}
           onClick={() => setTab("dishes")}
@@ -101,6 +147,9 @@ export default function CalcClient({
           onClick={() => setTab("packages")}
           label={`პაკეტები (${packages.length})`}
         />
+        <div className="ml-auto">
+          <TargetPctControl targetPct={targetPct} />
+        </div>
       </div>
 
       {tab === "ingredients" && (
@@ -113,6 +162,7 @@ export default function CalcClient({
           categories={categories}
           dishes={dishes}
           inventoryItems={inventoryItems}
+          targetPct={targetPct}
           goToIngredients={() => setTab("ingredients")}
         />
       )}
@@ -126,6 +176,36 @@ export default function CalcClient({
         />
       )}
     </>
+  );
+}
+
+function TargetPctControl({ targetPct }: { targetPct: number }) {
+  const [pending, startTransition] = useTransition();
+  const [val, setVal] = useState(String(targetPct));
+  return (
+    <div
+      className="flex items-center gap-2 rounded-xl px-3 py-1.5"
+      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+    >
+      <Target size={14} style={{ color: "var(--text-3)" }} />
+      <span className="text-xs" style={{ color: "var(--text-2)" }}>
+        სამიზნე food-cost
+      </span>
+      <input
+        type="number"
+        className="input !w-16 !py-1 !text-sm"
+        value={val}
+        disabled={pending}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => {
+          const v = Number(val);
+          if (v > 0 && v !== targetPct)
+            startTransition(() => saveTargetFoodCostPct(v));
+        }}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+      <span className="text-xs" style={{ color: "var(--text-3)" }}>%</span>
+    </div>
   );
 }
 
@@ -168,6 +248,7 @@ function IngredientsTab({
 }) {
   const [pending, startTransition] = useTransition();
   const [form, setForm] = useState({ name: "", unit: "kg", price: "", waste: "" });
+  const [query, setQuery] = useState("");
 
   const usedCount = useMemo(() => {
     const m = new Map<number, number>();
@@ -175,6 +256,11 @@ function IngredientsTab({
       for (const l of d.lines) m.set(l.ingredientId, (m.get(l.ingredientId) ?? 0) + 1);
     return m;
   }, [dishes]);
+
+  const q = query.trim().toLowerCase();
+  const visible = q
+    ? ingredients.filter((i) => i.name.toLowerCase().includes(q))
+    : ingredients;
 
   return (
     <>
@@ -243,6 +329,18 @@ function IngredientsTab({
         </div>
       </Section>
 
+      {ingredients.length > 0 && (
+        <div className="relative mb-4">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-3)" }} />
+          <input
+            className="input !pl-9"
+            placeholder="ინგრედიენტის ძებნა…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      )}
+
       <Section>
         {ingredients.length === 0 ? (
           <EmptyState
@@ -250,6 +348,10 @@ function IngredientsTab({
             title="ინგრედიენტები არ არის"
             text="დაამატე პროდუქტები ფასებით — ეს არის კალკულაციის საფუძველი. მაგ: ლობიო · კგ · 10₾"
           />
+        ) : visible.length === 0 ? (
+          <p className="py-6 text-center text-sm" style={{ color: "var(--text-3)" }}>
+            „{query}“ ვერ მოიძებნა.
+          </p>
         ) : (
           <div className="table-wrap -m-5">
             <table className="table">
@@ -264,7 +366,7 @@ function IngredientsTab({
                 </tr>
               </thead>
               <tbody>
-                {ingredients.map((ing) => (
+                {visible.map((ing) => (
                   <IngredientRow key={ing.id} ing={ing} used={usedCount.get(ing.id) ?? 0} />
                 ))}
               </tbody>
@@ -349,6 +451,7 @@ function DishesTab({
   categories,
   dishes,
   inventoryItems,
+  targetPct,
   goToIngredients,
 }: {
   ingredients: MenuIngredient[];
@@ -356,6 +459,7 @@ function DishesTab({
   categories: MenuCategory[];
   dishes: MenuDish[];
   inventoryItems: InventoryItem[];
+  targetPct: number;
   goToIngredients: () => void;
 }) {
   const [pending, startTransition] = useTransition();
@@ -363,9 +467,14 @@ function DishesTab({
   const [addingCat, setAddingCat] = useState(false);
   const [newCat, setNewCat] = useState("");
   const [form, setForm] = useState({ name: "", categoryId: "", sellPrice: "" });
+  const [query, setQuery] = useState("");
 
-  const visible =
-    catFilter === "all" ? dishes : dishes.filter((d) => d.categoryId === catFilter);
+  const q = query.trim().toLowerCase();
+  const visible = dishes.filter(
+    (d) =>
+      (catFilter === "all" || d.categoryId === catFilter) &&
+      (!q || d.name.toLowerCase().includes(q)),
+  );
 
   const dishCountByCat = useMemo(() => {
     const m = new Map<number, number>();
@@ -521,12 +630,28 @@ function DishesTab({
         </div>
       </Section>
 
+      {dishes.length > 0 && (
+        <div className="relative mb-4">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-3)" }} />
+          <input
+            className="input !pl-9"
+            placeholder="კერძის ძებნა…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      )}
+
       {visible.length === 0 ? (
         <Section>
           <EmptyState
             icon={UtensilsCrossed}
-            title="კერძები არ არის"
-            text="დაამატე კერძი, გახსენი და ჩაუწერე რეცეპტი — თვითღირებულება ავტომატურად დაითვლება."
+            title={dishes.length === 0 ? "კერძები არ არის" : "ვერ მოიძებნა"}
+            text={
+              dishes.length === 0
+                ? "დაამატე კერძი, გახსენი და ჩაუწერე რეცეპტი — თვითღირებულება ავტომატურად დაითვლება."
+                : "შეცვალე ძებნა ან კატეგორია."
+            }
           />
         </Section>
       ) : (
@@ -539,6 +664,7 @@ function DishesTab({
               ingredients={ingredients}
               ingredientsById={ingredientsById}
               inventoryItems={inventoryItems}
+              targetPct={targetPct}
             />
           ))}
         </div>
@@ -593,25 +719,34 @@ function DishCard({
   ingredients,
   ingredientsById,
   inventoryItems,
+  targetPct,
 }: {
   dish: MenuDish;
   categories: MenuCategory[];
   ingredients: MenuIngredient[];
   ingredientsById: Map<number, MenuIngredient>;
   inventoryItems: InventoryItem[];
+  targetPct: number;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [sellPrice, setSellPrice] = useState(String(dish.sellPrice || ""));
+  const [editingName, setEditingName] = useState(false);
+  const [name, setName] = useState(dish.name);
 
   const cost = dishCost(dish.lines, ingredientsById);
   const fc = foodCostPct(cost, dish.sellPrice);
-  const suggested = suggestedPrice(cost, DEFAULT_TARGET_FOOD_COST_PCT);
+  const suggested = suggestedPrice(cost, targetPct);
   const catName = categories.find((c) => c.id === dish.categoryId)?.name;
 
   const saveSellPrice = () => {
     const v = Number(sellPrice) || 0;
     if (v !== dish.sellPrice) startTransition(() => updateDish(dish.id, { sellPrice: v }));
+  };
+  const saveName = () => {
+    const v = name.trim();
+    setEditingName(false);
+    if (v && v !== dish.name) startTransition(() => updateDish(dish.id, { name: v }));
   };
 
   return (
@@ -623,8 +758,38 @@ function DishCard({
         <span style={{ color: "var(--text-3)" }}>
           {open ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
         </span>
-        <div className="min-w-40 flex-1">
-          <div className="font-bold">{dish.name}</div>
+        <div className="min-w-40 flex-1" onClick={(e) => editingName && e.stopPropagation()}>
+          {editingName ? (
+            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+              <input
+                className="input !py-1"
+                value={name}
+                autoFocus
+                onChange={(e) => setName(e.target.value)}
+                onBlur={saveName}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  if (e.key === "Escape") { setName(dish.name); setEditingName(false); }
+                }}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold">{dish.name}</span>
+              <button
+                className="rounded p-0.5 opacity-50 hover:opacity-100"
+                style={{ color: "var(--text-3)" }}
+                title="სახელის შეცვლა"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setName(dish.name);
+                  setEditingName(true);
+                }}
+              >
+                <Pencil size={13} />
+              </button>
+            </div>
+          )}
           <div className="text-xs" style={{ color: "var(--text-3)" }}>
             {catName ?? "კატეგორიის გარეშე"} · {dish.lines.length} ინგრედიენტი
           </div>
@@ -636,7 +801,7 @@ function DishCard({
           color={
             fc == null
               ? undefined
-              : fc <= DEFAULT_TARGET_FOOD_COST_PCT
+              : fc <= targetPct
                 ? "var(--green)"
                 : "var(--red)"
           }
@@ -675,18 +840,27 @@ function DishCard({
             <span className="text-xs" style={{ color: "var(--text-3)" }}>₾</span>
           </div>
         </div>
-        <button
-          className="btn btn-danger !px-2.5 !py-1.5"
-          title="კერძის წაშლა"
-          disabled={pending}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (confirm(`წავშალო „${dish.name}"?`))
-              startTransition(() => deleteDish(dish.id));
-          }}
-        >
-          <Trash2 size={15} />
-        </button>
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <button
+            className="btn btn-ghost !px-2.5 !py-1.5"
+            title="კერძის დუბლირება (ვარიანტის შესაქმნელად)"
+            disabled={pending}
+            onClick={() => startTransition(() => duplicateDish(dish.id))}
+          >
+            <Copy size={15} />
+          </button>
+          <button
+            className="btn btn-danger !px-2.5 !py-1.5"
+            title="კერძის წაშლა"
+            disabled={pending}
+            onClick={() => {
+              if (confirm(`წავშალო „${dish.name}"?`))
+                startTransition(() => deleteDish(dish.id));
+            }}
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
       </div>
 
       {open && (
@@ -695,6 +869,7 @@ function DishCard({
             dish={dish}
             cost={cost}
             suggested={suggested}
+            targetPct={targetPct}
             ingredients={ingredients}
             ingredientsById={ingredientsById}
           />
@@ -733,12 +908,14 @@ function RecipeEditor({
   dish,
   cost,
   suggested,
+  targetPct,
   ingredients,
   ingredientsById,
 }: {
   dish: MenuDish;
   cost: number;
   suggested: number;
+  targetPct: number;
   ingredients: MenuIngredient[];
   ingredientsById: Map<number, MenuIngredient>;
 }) {
@@ -839,7 +1016,7 @@ function RecipeEditor({
         </span>
         {cost > 0 && (
           <span className="flex items-center gap-2 text-sm">
-            რეკომენდებული ფასი ({DEFAULT_TARGET_FOOD_COST_PCT}% food-cost):{" "}
+            რეკომენდებული ფასი ({targetPct}% food-cost):{" "}
             <b>{gel(suggested, 2)}</b>
             <button
               className="btn btn-ghost !px-2 !py-1"
