@@ -216,6 +216,81 @@ function TargetPctControl({ targetPct }: { targetPct: number }) {
   );
 }
 
+// Searchable dropdown (combobox): type to filter, click to pick.
+function SearchSelect({
+  options,
+  onSelect,
+  placeholder,
+  disabled,
+}: {
+  options: { id: number; label: string; hint?: string }[];
+  onSelect: (id: number) => void;
+  placeholder: string;
+  disabled?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? options.filter((o) => o.label.toLowerCase().includes(q))
+    : options;
+
+  return (
+    <div className="relative">
+      <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-3)" }} />
+      <input
+        className="input !pl-9"
+        placeholder={placeholder}
+        value={query}
+        disabled={disabled}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && (
+        <div
+          className="absolute z-30 mt-1 max-h-60 w-full overflow-auto rounded-xl py-1"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            boxShadow: "var(--shadow-md)",
+          }}
+        >
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-sm" style={{ color: "var(--text-3)" }}>
+              ვერ მოიძებნა
+            </div>
+          ) : (
+            filtered.slice(0, 40).map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--surface-2)]"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onSelect(o.id);
+                  setQuery("");
+                  setOpen(false);
+                }}
+              >
+                <span className="font-medium">{o.label}</span>
+                {o.hint && (
+                  <span className="shrink-0 text-xs" style={{ color: "var(--text-3)" }}>
+                    {o.hint}
+                  </span>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TabButton({
   active,
   onClick,
@@ -478,6 +553,7 @@ function DishesTab({
   const [newCat, setNewCat] = useState("");
   const [form, setForm] = useState({ name: "", categoryId: "", menuTypeId: "", sellPrice: "" });
   const [query, setQuery] = useState("");
+  const [justCreatedId, setJustCreatedId] = useState<number | null>(null);
 
   const matchType = (d: MenuDish) =>
     typeFilter === "all"
@@ -664,15 +740,16 @@ function DishesTab({
                 startTransition(async () => {
                   const menuTypeId = form.menuTypeId
                     ? Number(form.menuTypeId)
-                    : typeFilter !== "all"
+                    : typeFilter !== "all" && typeFilter !== -1
                       ? typeFilter
                       : null;
-                  await createDish({
+                  const id = await createDish({
                     name: form.name,
                     categoryId: form.categoryId ? Number(form.categoryId) : null,
                     menuTypeId,
                     sellPrice: Number(form.sellPrice) || 0,
                   });
+                  if (id) setJustCreatedId(id);
                   setForm({ name: "", categoryId: form.categoryId, menuTypeId: form.menuTypeId, sellPrice: "" });
                 })
               }
@@ -713,6 +790,7 @@ function DishesTab({
             <DishCard
               key={d.id}
               dish={d}
+              defaultOpen={d.id === justCreatedId}
               categories={categories}
               menuTypes={menuTypes}
               ingredients={ingredients}
@@ -900,6 +978,7 @@ function MenuTypeBar({
 
 function DishCard({
   dish,
+  defaultOpen,
   categories,
   menuTypes,
   ingredients,
@@ -908,6 +987,7 @@ function DishCard({
   targetPct,
 }: {
   dish: MenuDish;
+  defaultOpen?: boolean;
   categories: MenuCategory[];
   menuTypes: MenuType[];
   ingredients: MenuIngredient[];
@@ -915,7 +995,7 @@ function DishCard({
   inventoryItems: InventoryItem[];
   targetPct: number;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen ?? false);
   const [pending, startTransition] = useTransition();
   const [sellPrice, setSellPrice] = useState(String(dish.sellPrice || ""));
   const [editingName, setEditingName] = useState(false);
@@ -1195,56 +1275,76 @@ function RecipeEditor({
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-48 flex-1">
-          <label className="label">ინგრედიენტის დამატება</label>
-          <select
-            className="select"
-            value={newIngId}
-            onChange={(e) => setNewIngId(e.target.value)}
+      {selectedIng ? (
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-40 flex-1">
+            <label className="label">არჩეული ინგრედიენტი</label>
+            <div
+              className="flex items-center justify-between rounded-xl px-3 py-2"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+            >
+              <span className="text-sm font-semibold">
+                {selectedIng.name}{" "}
+                <span className="text-xs" style={{ color: "var(--text-3)" }}>
+                  ({gel(selectedIng.pricePerUnit, 2)}/{UNIT_LABELS[selectedIng.unit]})
+                </span>
+              </span>
+              <button
+                className="rounded p-0.5 hover:opacity-70"
+                style={{ color: "var(--text-3)" }}
+                onClick={() => setNewIngId("")}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="label">რაოდენობა ({QTY_LABELS[selectedIng.unit]})</label>
+            <input
+              type="number"
+              className="input !w-32"
+              autoFocus
+              placeholder={selectedIng.unit === "pc" ? "მაგ. 2" : "მაგ. 300"}
+              value={newQty}
+              onChange={(e) => setNewQty(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && Number(newQty) > 0)
+                  startTransition(async () => {
+                    await addRecipeLine(dish.id, Number(newIngId), Number(newQty));
+                    setNewIngId("");
+                    setNewQty("");
+                  });
+              }}
+            />
+          </div>
+          <button
+            className="btn btn-primary"
+            disabled={pending || !(Number(newQty) > 0)}
+            onClick={() =>
+              startTransition(async () => {
+                await addRecipeLine(dish.id, Number(newIngId), Number(newQty));
+                setNewIngId("");
+                setNewQty("");
+              })
+            }
           >
-            <option value="">— აირჩიე —</option>
-            {available.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.name} ({gel(i.pricePerUnit, 2)}/{UNIT_LABELS[i.unit]})
-              </option>
-            ))}
-          </select>
+            <Plus size={16} /> დამატება
+          </button>
         </div>
+      ) : (
         <div>
-          <label className="label">
-            რაოდენობა {selectedIng ? `(${QTY_LABELS[selectedIng.unit]})` : ""}
-          </label>
-          <input
-            type="number"
-            className="input !w-32"
-            placeholder={selectedIng?.unit === "pc" ? "მაგ. 2" : "მაგ. 300"}
-            value={newQty}
-            onChange={(e) => setNewQty(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && newIngId && Number(newQty) > 0)
-                startTransition(async () => {
-                  await addRecipeLine(dish.id, Number(newIngId), Number(newQty));
-                  setNewIngId("");
-                  setNewQty("");
-                });
-            }}
+          <label className="label">ინგრედიენტის დამატება</label>
+          <SearchSelect
+            placeholder="ინგრედიენტის ძებნა…"
+            options={available.map((i) => ({
+              id: i.id,
+              label: i.name,
+              hint: `${gel(i.pricePerUnit, 2)}/${UNIT_LABELS[i.unit]}`,
+            }))}
+            onSelect={(id) => setNewIngId(String(id))}
           />
         </div>
-        <button
-          className="btn btn-primary"
-          disabled={pending || !newIngId || !(Number(newQty) > 0)}
-          onClick={() =>
-            startTransition(async () => {
-              await addRecipeLine(dish.id, Number(newIngId), Number(newQty));
-              setNewIngId("");
-              setNewQty("");
-            })
-          }
-        >
-          <Plus size={16} /> დამატება
-        </button>
-      </div>
+      )}
 
       <div
         className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl px-4 py-3"
@@ -1324,18 +1424,33 @@ function ServingInventoryEditor({
       ) : (
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-48 flex-1">
-            <select
-              className="select"
-              value={itemId}
-              onChange={(e) => setItemId(e.target.value)}
-            >
-              <option value="">— აირჩიე ინვენტარი —</option>
-              {available.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.name} (მარაგში {i.quantity} {i.unit})
-                </option>
-              ))}
-            </select>
+            {itemId ? (
+              <div
+                className="flex items-center justify-between rounded-xl px-3 py-2"
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+              >
+                <span className="text-sm font-semibold">
+                  {itemsById.get(Number(itemId))?.name}
+                </span>
+                <button
+                  className="rounded p-0.5 hover:opacity-70"
+                  style={{ color: "var(--text-3)" }}
+                  onClick={() => setItemId("")}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <SearchSelect
+                placeholder="ინვენტარის ძებნა…"
+                options={available.map((i) => ({
+                  id: i.id,
+                  label: i.name,
+                  hint: `მარაგში ${i.quantity} ${i.unit}`,
+                }))}
+                onSelect={(id) => setItemId(String(id))}
+              />
+            )}
           </div>
           <div>
             <input
@@ -1494,13 +1609,15 @@ function PackagesTab({
   const [pending, startTransition] = useTransition();
   const [form, setForm] = useState({ name: "", price: "", menuTypeId: "" });
   const [typeFilter, setTypeFilter] = useState<number | "all">("all");
+  const [query, setQuery] = useState("");
 
-  const visiblePkgs =
-    typeFilter === "all"
-      ? packages
-      : typeFilter === -1
-        ? packages.filter((p) => p.menuTypeId == null)
-        : packages.filter((p) => p.menuTypeId === typeFilter);
+  const pq = query.trim().toLowerCase();
+  const visiblePkgs = packages.filter(
+    (p) =>
+      (typeFilter === "all" ||
+        (typeFilter === -1 ? p.menuTypeId == null : p.menuTypeId === typeFilter)) &&
+      (!pq || p.name.toLowerCase().includes(pq)),
+  );
 
   if (dishes.length === 0) {
     return (
@@ -1609,11 +1726,23 @@ function PackagesTab({
         </div>
       </Section>
 
+      {packages.length > 0 && (
+        <div className="relative mb-4">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-3)" }} />
+          <input
+            className="input !pl-9"
+            placeholder="პაკეტის ძებნა…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      )}
+
       {visiblePkgs.length === 0 ? (
         <Section>
           <EmptyState
             icon={PackageOpen}
-            title={packages.length === 0 ? "პაკეტები არ არის" : "ამ ტიპში პაკეტი არ არის"}
+            title={packages.length === 0 ? "პაკეტები არ არის" : "ვერ მოიძებნა"}
             text="შექმენი პაკეტი, გახსენი და ჩაუწყვე კერძები პორცია/სტუმარით — ღირებულება ავტომატურად დაითვლება."
           />
         </Section>
@@ -1783,14 +1912,33 @@ function PackageCard({
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-48 flex-1">
               <label className="label">კერძის დამატება</label>
-              <select className="select" value={newDishId} onChange={(e) => setNewDishId(e.target.value)}>
-                <option value="">— აირჩიე —</option>
-                {available.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} ({gel(dishCost(d.lines, ingredientsById), 2)})
-                  </option>
-                ))}
-              </select>
+              {newDishId ? (
+                <div
+                  className="flex items-center justify-between rounded-xl px-3 py-2"
+                  style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+                >
+                  <span className="text-sm font-semibold">
+                    {dishesById.get(Number(newDishId))?.name}
+                  </span>
+                  <button
+                    className="rounded p-0.5 hover:opacity-70"
+                    style={{ color: "var(--text-3)" }}
+                    onClick={() => setNewDishId("")}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <SearchSelect
+                  placeholder="კერძის ძებნა…"
+                  options={available.map((d) => ({
+                    id: d.id,
+                    label: d.name,
+                    hint: gel(dishCost(d.lines, ingredientsById), 2),
+                  }))}
+                  onSelect={(id) => setNewDishId(String(id))}
+                />
+              )}
             </div>
             <div>
               <label className="label">პორცია/სტუმარი</label>

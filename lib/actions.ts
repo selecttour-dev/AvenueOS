@@ -577,15 +577,19 @@ export async function createPackage(input: {
   menuTypeId?: number | null;
 }) {
   const venueId = await getActiveVenueId();
-  if (!venueId || !input.name.trim()) return;
-  await db.insert(packages).values({
-    venueId,
-    name: input.name.trim(),
-    pricePerGuest: input.pricePerGuest || 0,
-    description: input.description?.trim() || null,
-    menuTypeId: input.menuTypeId ?? null,
-  });
+  if (!venueId || !input.name.trim()) return null;
+  const [row] = await db
+    .insert(packages)
+    .values({
+      venueId,
+      name: input.name.trim(),
+      pricePerGuest: input.pricePerGuest || 0,
+      description: input.description?.trim() || null,
+      menuTypeId: input.menuTypeId ?? null,
+    })
+    .returning({ id: packages.id });
   revalidatePath("/calc");
+  return row?.id ?? null;
 }
 
 export async function updatePackage(
@@ -1255,15 +1259,19 @@ export async function createDish(input: {
   sellPrice: number;
 }) {
   const venueId = await getActiveVenueId();
-  if (!venueId || !input.name.trim()) return;
-  await db.insert(dishes).values({
-    venueId,
-    name: input.name.trim(),
-    categoryId: input.categoryId,
-    menuTypeId: input.menuTypeId ?? null,
-    sellPrice: input.sellPrice || 0,
-  });
+  if (!venueId || !input.name.trim()) return null;
+  const [row] = await db
+    .insert(dishes)
+    .values({
+      venueId,
+      name: input.name.trim(),
+      categoryId: input.categoryId,
+      menuTypeId: input.menuTypeId ?? null,
+      sellPrice: input.sellPrice || 0,
+    })
+    .returning({ id: dishes.id });
   revalidatePath("/calc");
+  return row?.id ?? null;
 }
 
 export async function updateDish(
