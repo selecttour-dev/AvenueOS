@@ -19,6 +19,7 @@ import {
   ingredients,
   inventoryItems,
   ledger,
+  menuTypes,
   packageDishes,
   packages,
   payments,
@@ -573,6 +574,7 @@ export async function createPackage(input: {
   name: string;
   pricePerGuest?: number;
   description?: string;
+  menuTypeId?: number | null;
 }) {
   const venueId = await getActiveVenueId();
   if (!venueId || !input.name.trim()) return;
@@ -581,13 +583,19 @@ export async function createPackage(input: {
     name: input.name.trim(),
     pricePerGuest: input.pricePerGuest || 0,
     description: input.description?.trim() || null,
+    menuTypeId: input.menuTypeId ?? null,
   });
   revalidatePath("/calc");
 }
 
 export async function updatePackage(
   id: number,
-  input: { name?: string; pricePerGuest?: number; description?: string | null },
+  input: {
+    name?: string;
+    pricePerGuest?: number;
+    description?: string | null;
+    menuTypeId?: number | null;
+  },
 ) {
   await db
     .update(packages)
@@ -599,6 +607,7 @@ export async function updatePackage(
       ...(input.description !== undefined
         ? { description: input.description?.trim() || null }
         : {}),
+      ...(input.menuTypeId !== undefined ? { menuTypeId: input.menuTypeId } : {}),
     })
     .where(eq(packages.id, id));
   revalidatePath("/calc");
@@ -1242,6 +1251,7 @@ export async function deleteDishCategory(id: number) {
 export async function createDish(input: {
   name: string;
   categoryId: number | null;
+  menuTypeId?: number | null;
   sellPrice: number;
 }) {
   const venueId = await getActiveVenueId();
@@ -1250,6 +1260,7 @@ export async function createDish(input: {
     venueId,
     name: input.name.trim(),
     categoryId: input.categoryId,
+    menuTypeId: input.menuTypeId ?? null,
     sellPrice: input.sellPrice || 0,
   });
   revalidatePath("/calc");
@@ -1257,7 +1268,12 @@ export async function createDish(input: {
 
 export async function updateDish(
   id: number,
-  input: { name?: string; sellPrice?: number; categoryId?: number | null },
+  input: {
+    name?: string;
+    sellPrice?: number;
+    categoryId?: number | null;
+    menuTypeId?: number | null;
+  },
 ) {
   await db
     .update(dishes)
@@ -1265,8 +1281,29 @@ export async function updateDish(
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
       ...(input.sellPrice !== undefined ? { sellPrice: input.sellPrice } : {}),
       ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
+      ...(input.menuTypeId !== undefined ? { menuTypeId: input.menuTypeId } : {}),
     })
     .where(eq(dishes.id, id));
+  revalidatePath("/calc");
+}
+
+// ---------- menu types ----------
+
+export async function createMenuType(name: string) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !name.trim()) return;
+  await db.insert(menuTypes).values({ venueId, name: name.trim() });
+  revalidatePath("/calc");
+}
+
+export async function renameMenuType(id: number, name: string) {
+  if (!name.trim()) return;
+  await db.update(menuTypes).set({ name: name.trim() }).where(eq(menuTypes.id, id));
+  revalidatePath("/calc");
+}
+
+export async function deleteMenuType(id: number) {
+  await db.delete(menuTypes).where(eq(menuTypes.id, id));
   revalidatePath("/calc");
 }
 
@@ -1291,6 +1328,7 @@ export async function duplicateDish(dishId: number) {
       venueId,
       name: `${d.name} (ასლი)`,
       categoryId: d.categoryId,
+      menuTypeId: d.menuTypeId,
       sellPrice: d.sellPrice,
       active: d.active,
     })

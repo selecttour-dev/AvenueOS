@@ -25,11 +25,13 @@ import {
   createDish,
   createDishCategory,
   createIngredient,
+  createMenuType,
   createPackage,
   deleteDish,
   deleteDishCategory,
   deleteDishInventory,
   deleteIngredient,
+  deleteMenuType,
   deletePackage,
   deletePackageDish,
   deleteRecipeLine,
@@ -55,6 +57,7 @@ import {
   type MenuDish,
   type MenuIngredient,
   type MenuPackage,
+  type MenuType,
 } from "@/lib/menu-shared";
 import { gel } from "@/lib/format";
 import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
@@ -62,6 +65,7 @@ import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
 type Props = {
   ingredients: MenuIngredient[];
   categories: MenuCategory[];
+  menuTypes: MenuType[];
   dishes: MenuDish[];
   inventoryItems: InventoryItem[];
   packages: MenuPackage[];
@@ -71,6 +75,7 @@ type Props = {
 export default function CalcClient({
   ingredients,
   categories,
+  menuTypes,
   dishes,
   inventoryItems,
   packages,
@@ -160,6 +165,7 @@ export default function CalcClient({
           ingredients={ingredients}
           ingredientsById={ingredientsById}
           categories={categories}
+          menuTypes={menuTypes}
           dishes={dishes}
           inventoryItems={inventoryItems}
           targetPct={targetPct}
@@ -170,6 +176,7 @@ export default function CalcClient({
         <PackagesTab
           packages={packages}
           dishes={dishes}
+          menuTypes={menuTypes}
           dishesById={dishesById}
           ingredientsById={ingredientsById}
           goToDishes={() => setTab("dishes")}
@@ -449,6 +456,7 @@ function DishesTab({
   ingredients,
   ingredientsById,
   categories,
+  menuTypes,
   dishes,
   inventoryItems,
   targetPct,
@@ -457,31 +465,43 @@ function DishesTab({
   ingredients: MenuIngredient[];
   ingredientsById: Map<number, MenuIngredient>;
   categories: MenuCategory[];
+  menuTypes: MenuType[];
   dishes: MenuDish[];
   inventoryItems: InventoryItem[];
   targetPct: number;
   goToIngredients: () => void;
 }) {
   const [pending, startTransition] = useTransition();
+  const [typeFilter, setTypeFilter] = useState<number | "all">("all");
   const [catFilter, setCatFilter] = useState<number | "all">("all");
   const [addingCat, setAddingCat] = useState(false);
   const [newCat, setNewCat] = useState("");
-  const [form, setForm] = useState({ name: "", categoryId: "", sellPrice: "" });
+  const [form, setForm] = useState({ name: "", categoryId: "", menuTypeId: "", sellPrice: "" });
   const [query, setQuery] = useState("");
+
+  const matchType = (d: MenuDish) =>
+    typeFilter === "all"
+      ? true
+      : typeFilter === -1
+        ? d.menuTypeId == null
+        : d.menuTypeId === typeFilter;
 
   const q = query.trim().toLowerCase();
   const visible = dishes.filter(
     (d) =>
+      matchType(d) &&
       (catFilter === "all" || d.categoryId === catFilter) &&
       (!q || d.name.toLowerCase().includes(q)),
   );
 
+  // dishes scoped to the current menu-type, for category counts
+  const typeScoped = dishes.filter(matchType);
   const dishCountByCat = useMemo(() => {
     const m = new Map<number, number>();
-    for (const d of dishes)
+    for (const d of typeScoped)
       if (d.categoryId != null) m.set(d.categoryId, (m.get(d.categoryId) ?? 0) + 1);
     return m;
-  }, [dishes]);
+  }, [typeScoped]);
 
   if (ingredients.length === 0) {
     return (
@@ -502,9 +522,19 @@ function DishesTab({
 
   return (
     <>
+      <MenuTypeBar
+        menuTypes={menuTypes}
+        dishes={dishes}
+        selected={typeFilter}
+        onSelect={(v) => {
+          setTypeFilter(v);
+          setCatFilter("all");
+        }}
+      />
+
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <CategoryChip
-          label={`ყველა (${dishes.length})`}
+          label={`ყველა (${typeScoped.length})`}
           active={catFilter === "all"}
           onClick={() => setCatFilter("all")}
         />
@@ -574,7 +604,7 @@ function DishesTab({
       </div>
 
       <Section title="ახალი კერძი" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <label className="label">კერძის სახელი</label>
             <input
@@ -584,6 +614,23 @@ function DishesTab({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </div>
+          {menuTypes.length > 0 && (
+            <div>
+              <label className="label">მენიუს ტიპი</label>
+              <select
+                className="select"
+                value={form.menuTypeId || (typeFilter !== "all" ? String(typeFilter) : "")}
+                onChange={(e) => setForm({ ...form, menuTypeId: e.target.value })}
+              >
+                <option value="">— ტიპის გარეშე —</option>
+                {menuTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="label">კატეგორია</label>
             <select
@@ -600,7 +647,7 @@ function DishesTab({
             </select>
           </div>
           <div>
-            <label className="label">გასაყიდი ფასი ₾ (არასავალდებულო)</label>
+            <label className="label">გასაყიდი ფასი ₾</label>
             <input
               type="number"
               className="input"
@@ -615,12 +662,18 @@ function DishesTab({
               disabled={pending || !form.name.trim()}
               onClick={() =>
                 startTransition(async () => {
+                  const menuTypeId = form.menuTypeId
+                    ? Number(form.menuTypeId)
+                    : typeFilter !== "all"
+                      ? typeFilter
+                      : null;
                   await createDish({
                     name: form.name,
                     categoryId: form.categoryId ? Number(form.categoryId) : null,
+                    menuTypeId,
                     sellPrice: Number(form.sellPrice) || 0,
                   });
-                  setForm({ name: "", categoryId: form.categoryId, sellPrice: "" });
+                  setForm({ name: "", categoryId: form.categoryId, menuTypeId: form.menuTypeId, sellPrice: "" });
                 })
               }
             >
@@ -661,6 +714,7 @@ function DishesTab({
               key={d.id}
               dish={d}
               categories={categories}
+              menuTypes={menuTypes}
               ingredients={ingredients}
               ingredientsById={ingredientsById}
               inventoryItems={inventoryItems}
@@ -713,9 +767,141 @@ function CategoryChip({
   );
 }
 
+// Prominent segmented bar for the top-level menu kind (traditional / buffet).
+function MenuTypeBar({
+  menuTypes,
+  dishes,
+  selected,
+  onSelect,
+}: {
+  menuTypes: MenuType[];
+  dishes: MenuDish[];
+  selected: number | "all";
+  onSelect: (v: number | "all") => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+
+  const countByType = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const d of dishes)
+      if (d.menuTypeId != null) m.set(d.menuTypeId, (m.get(d.menuTypeId) ?? 0) + 1);
+    return m;
+  }, [dishes]);
+  const untyped = dishes.filter((d) => d.menuTypeId == null).length;
+
+  const Seg = ({
+    active,
+    onClick,
+    children,
+  }: {
+    active: boolean;
+    onClick: () => void;
+    children: React.ReactNode;
+  }) => (
+    <button
+      className="rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors"
+      style={
+        active
+          ? { background: "var(--primary)", color: "#fff" }
+          : { background: "transparent", color: "var(--text-2)" }
+      }
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <span className="text-xs font-bold" style={{ color: "var(--text-3)" }}>
+        მენიუს ტიპი:
+      </span>
+      <div
+        className="flex flex-wrap items-center gap-1 rounded-xl p-1"
+        style={{ background: "var(--surface-2)" }}
+      >
+        <Seg active={selected === "all"} onClick={() => onSelect("all")}>
+          ყველა ({dishes.length})
+        </Seg>
+        {menuTypes.map((t) => (
+          <Seg key={t.id} active={selected === t.id} onClick={() => onSelect(t.id)}>
+            {t.name} ({countByType.get(t.id) ?? 0})
+          </Seg>
+        ))}
+        {untyped > 0 && (
+          <Seg active={selected === -1} onClick={() => onSelect(-1)}>
+            ტიპის გარეშე ({untyped})
+          </Seg>
+        )}
+      </div>
+      {adding ? (
+        <span className="flex items-center gap-1.5">
+          <input
+            className="input !w-40 !py-1.5"
+            placeholder="მაგ. ფურშეტი"
+            value={name}
+            autoFocus
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && name.trim())
+                startTransition(async () => {
+                  await createMenuType(name);
+                  setName("");
+                  setAdding(false);
+                });
+              if (e.key === "Escape") setAdding(false);
+            }}
+          />
+          <button
+            className="btn btn-primary !px-2.5 !py-1.5"
+            disabled={pending || !name.trim()}
+            onClick={() =>
+              startTransition(async () => {
+                await createMenuType(name);
+                setName("");
+                setAdding(false);
+              })
+            }
+          >
+            <Plus size={15} />
+          </button>
+        </span>
+      ) : (
+        <button
+          className="badge cursor-pointer"
+          style={{ background: "var(--surface)", color: "var(--text-3)", border: "1px dashed var(--border-strong)" }}
+          onClick={() => setAdding(true)}
+        >
+          <Plus size={13} /> ტიპი
+        </button>
+      )}
+      {typeof selected === "number" &&
+        selected > 0 &&
+        (countByType.get(selected) ?? 0) === 0 && (
+          <button
+            className="badge cursor-pointer"
+            style={{ background: "var(--red-soft)", color: "var(--red)" }}
+            disabled={pending}
+            onClick={() => {
+              if (confirm("წავშალო ეს მენიუს ტიპი?")) {
+                onSelect("all");
+                startTransition(() => deleteMenuType(selected));
+              }
+            }}
+          >
+            <Trash2 size={12} /> ტიპის წაშლა
+          </button>
+        )}
+    </div>
+  );
+}
+
 function DishCard({
   dish,
   categories,
+  menuTypes,
   ingredients,
   ingredientsById,
   inventoryItems,
@@ -723,6 +909,7 @@ function DishCard({
 }: {
   dish: MenuDish;
   categories: MenuCategory[];
+  menuTypes: MenuType[];
   ingredients: MenuIngredient[];
   ingredientsById: Map<number, MenuIngredient>;
   inventoryItems: InventoryItem[];
@@ -738,6 +925,7 @@ function DishCard({
   const fc = foodCostPct(cost, dish.sellPrice);
   const suggested = suggestedPrice(cost, targetPct);
   const catName = categories.find((c) => c.id === dish.categoryId)?.name;
+  const typeName = menuTypes.find((t) => t.id === dish.menuTypeId)?.name;
 
   const saveSellPrice = () => {
     const v = Number(sellPrice) || 0;
@@ -790,8 +978,16 @@ function DishCard({
               </button>
             </div>
           )}
-          <div className="text-xs" style={{ color: "var(--text-3)" }}>
-            {catName ?? "კატეგორიის გარეშე"} · {dish.lines.length} ინგრედიენტი
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs" style={{ color: "var(--text-3)" }}>
+            {typeName && (
+              <span
+                className="badge !py-0.5"
+                style={{ background: "var(--primary-soft)", color: "var(--primary-strong)" }}
+              >
+                {typeName}
+              </span>
+            )}
+            <span>{catName ?? "კატეგორიის გარეშე"} · {dish.lines.length} ინგრედიენტი</span>
           </div>
         </div>
         <Metric label="თვითღირებულება" value={gel(cost, 2)} strong />
@@ -865,6 +1061,50 @@ function DishCard({
 
       {open && (
         <div className="px-5 pb-5" style={{ borderTop: "1px solid var(--border)" }}>
+          <div className="flex flex-wrap gap-3 pt-4">
+            {menuTypes.length > 0 && (
+              <div>
+                <label className="label">მენიუს ტიპი</label>
+                <select
+                  className="select !w-auto"
+                  value={dish.menuTypeId ?? ""}
+                  disabled={pending}
+                  onChange={(e) =>
+                    startTransition(() =>
+                      updateDish(dish.id, {
+                        menuTypeId: e.target.value ? Number(e.target.value) : null,
+                      }),
+                    )
+                  }
+                >
+                  <option value="">— ტიპის გარეშე —</option>
+                  {menuTypes.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="label">კატეგორია</label>
+              <select
+                className="select !w-auto"
+                value={dish.categoryId ?? ""}
+                disabled={pending}
+                onChange={(e) =>
+                  startTransition(() =>
+                    updateDish(dish.id, {
+                      categoryId: e.target.value ? Number(e.target.value) : null,
+                    }),
+                  )
+                }
+              >
+                <option value="">— კატეგორიის გარეშე —</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           <RecipeEditor
             dish={dish}
             cost={cost}
@@ -1239,18 +1479,28 @@ function RecipeLineRow({
 function PackagesTab({
   packages,
   dishes,
+  menuTypes,
   dishesById,
   ingredientsById,
   goToDishes,
 }: {
   packages: MenuPackage[];
   dishes: MenuDish[];
+  menuTypes: MenuType[];
   dishesById: Map<number, MenuDish>;
   ingredientsById: Map<number, MenuIngredient>;
   goToDishes: () => void;
 }) {
   const [pending, startTransition] = useTransition();
-  const [form, setForm] = useState({ name: "", price: "" });
+  const [form, setForm] = useState({ name: "", price: "", menuTypeId: "" });
+  const [typeFilter, setTypeFilter] = useState<number | "all">("all");
+
+  const visiblePkgs =
+    typeFilter === "all"
+      ? packages
+      : typeFilter === -1
+        ? packages.filter((p) => p.menuTypeId == null)
+        : packages.filter((p) => p.menuTypeId === typeFilter);
 
   if (dishes.length === 0) {
     return (
@@ -1271,17 +1521,58 @@ function PackagesTab({
 
   return (
     <>
+      {menuTypes.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold" style={{ color: "var(--text-3)" }}>მენიუს ტიპი:</span>
+          <div className="flex flex-wrap gap-1 rounded-xl p-1" style={{ background: "var(--surface-2)" }}>
+            {(["all", ...menuTypes.map((t) => t.id)] as const).map((v) => {
+              const label =
+                v === "all" ? `ყველა (${packages.length})` : menuTypes.find((t) => t.id === v)?.name ?? "";
+              return (
+                <button
+                  key={String(v)}
+                  className="rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors"
+                  style={
+                    typeFilter === v
+                      ? { background: "var(--primary)", color: "#fff" }
+                      : { background: "transparent", color: "var(--text-2)" }
+                  }
+                  onClick={() => setTypeFilter(v as number | "all")}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <Section title="ახალი პაკეტი" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="lg:col-span-2">
             <label className="label">პაკეტის სახელი</label>
             <input
               className="input"
-              placeholder="მაგ. სტანდარტული მენიუ"
+              placeholder="მაგ. ფურშეტი სტანდარტი"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </div>
+          {menuTypes.length > 0 && (
+            <div>
+              <label className="label">მენიუს ტიპი</label>
+              <select
+                className="select"
+                value={form.menuTypeId || (typeFilter !== "all" && typeFilter !== -1 ? String(typeFilter) : "")}
+                onChange={(e) => setForm({ ...form, menuTypeId: e.target.value })}
+              >
+                <option value="">— ტიპის გარეშე —</option>
+                {menuTypes.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="label">ფასი სტუმარზე ₾</label>
             <input
@@ -1298,11 +1589,17 @@ function PackagesTab({
               disabled={pending || !form.name.trim()}
               onClick={() =>
                 startTransition(async () => {
+                  const menuTypeId = form.menuTypeId
+                    ? Number(form.menuTypeId)
+                    : typeFilter !== "all" && typeFilter !== -1
+                      ? typeFilter
+                      : null;
                   await createPackage({
                     name: form.name,
                     pricePerGuest: Number(form.price) || 0,
+                    menuTypeId,
                   });
-                  setForm({ name: "", price: "" });
+                  setForm({ name: "", price: "", menuTypeId: form.menuTypeId });
                 })
               }
             >
@@ -1312,21 +1609,22 @@ function PackagesTab({
         </div>
       </Section>
 
-      {packages.length === 0 ? (
+      {visiblePkgs.length === 0 ? (
         <Section>
           <EmptyState
             icon={PackageOpen}
-            title="პაკეტები არ არის"
+            title={packages.length === 0 ? "პაკეტები არ არის" : "ამ ტიპში პაკეტი არ არის"}
             text="შექმენი პაკეტი, გახსენი და ჩაუწყვე კერძები პორცია/სტუმარით — ღირებულება ავტომატურად დაითვლება."
           />
         </Section>
       ) : (
         <div className="grid gap-4">
-          {packages.map((p) => (
+          {visiblePkgs.map((p) => (
             <PackageCard
               key={p.id}
               pkg={p}
               dishes={dishes}
+              menuTypes={menuTypes}
               dishesById={dishesById}
               ingredientsById={ingredientsById}
             />
@@ -1340,11 +1638,13 @@ function PackagesTab({
 function PackageCard({
   pkg,
   dishes,
+  menuTypes,
   dishesById,
   ingredientsById,
 }: {
   pkg: MenuPackage;
   dishes: MenuDish[];
+  menuTypes: MenuType[];
   dishesById: Map<number, MenuDish>;
   ingredientsById: Map<number, MenuIngredient>;
 }) {
@@ -1353,6 +1653,7 @@ function PackageCard({
   const [price, setPrice] = useState(String(pkg.pricePerGuest || ""));
   const [newDishId, setNewDishId] = useState("");
   const [newQty, setNewQty] = useState("1");
+  const typeName = menuTypes.find((t) => t.id === pkg.menuTypeId)?.name;
 
   const cost = packageCostPerGuest(pkg, dishesById, ingredientsById);
   const margin = pkg.pricePerGuest - cost;
@@ -1372,8 +1673,13 @@ function PackageCard({
         </span>
         <div className="min-w-40 flex-1">
           <div className="font-bold">{pkg.name}</div>
-          <div className="text-xs" style={{ color: "var(--text-3)" }}>
-            {pkg.dishes.length} კერძი
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs" style={{ color: "var(--text-3)" }}>
+            {typeName && (
+              <span className="badge !py-0.5" style={{ background: "var(--primary-soft)", color: "var(--primary-strong)" }}>
+                {typeName}
+              </span>
+            )}
+            <span>{pkg.dishes.length} კერძი</span>
           </div>
         </div>
         <Metric label="ღირ./სტუმარი" value={gel(cost, 2)} strong />
@@ -1423,6 +1729,28 @@ function PackageCard({
 
       {open && (
         <div className="px-5 pb-5 pt-4" style={{ borderTop: "1px solid var(--border)" }}>
+          {menuTypes.length > 0 && (
+            <div className="mb-4">
+              <label className="label">მენიუს ტიპი</label>
+              <select
+                className="select !w-auto"
+                value={pkg.menuTypeId ?? ""}
+                disabled={pending}
+                onChange={(e) =>
+                  startTransition(() =>
+                    updatePackage(pkg.id, {
+                      menuTypeId: e.target.value ? Number(e.target.value) : null,
+                    }),
+                  )
+                }
+              >
+                <option value="">— ტიპის გარეშე —</option>
+                {menuTypes.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {pkg.dishes.length > 0 && (
             <div className="table-wrap mb-4">
               <table className="table">

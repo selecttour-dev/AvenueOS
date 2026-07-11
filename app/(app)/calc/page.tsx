@@ -22,6 +22,7 @@ export default async function CalcPage() {
     <CalcClient
       ingredients={data.ingredients}
       categories={data.categories}
+      menuTypes={data.menuTypes}
       dishes={data.dishes}
       inventoryItems={inventory}
       packages={packages}

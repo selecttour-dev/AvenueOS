@@ -20,10 +20,13 @@ export type InventoryLine = {
   qtyPerPortion: number;
 };
 
+export type MenuType = { id: number; name: string };
+
 export type MenuDish = {
   id: number;
   name: string;
   categoryId: number | null;
+  menuTypeId: number | null;
   sellPrice: number;
   lines: RecipeLine[];
   invLines: InventoryLine[];
@@ -50,6 +53,7 @@ export type PackageDishLine = {
 export type MenuPackage = {
   id: number;
   name: string;
+  menuTypeId: number | null;
   pricePerGuest: number;
   manualCostPerGuest: number | null;
   description: string | null;

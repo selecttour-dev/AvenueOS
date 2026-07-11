@@ -13,6 +13,7 @@ import {
   ingredients,
   inventoryItems,
   ledger,
+  menuTypes,
   packageDishes,
   packages,
   payments,
@@ -35,6 +36,7 @@ import type {
   MenuDish,
   MenuIngredient,
   MenuPackage,
+  MenuType,
 } from "./menu-shared";
 
 export { bookingTotal, type BookingRow };
@@ -42,9 +44,10 @@ export { bookingTotal, type BookingRow };
 export async function getMenuData(venueId: number): Promise<{
   ingredients: MenuIngredient[];
   categories: MenuCategory[];
+  menuTypes: MenuType[];
   dishes: MenuDish[];
 }> {
-  const [ings, cats, dishRows] = await Promise.all([
+  const [ings, cats, types, dishRows] = await Promise.all([
     db
       .select()
       .from(ingredients)
@@ -55,6 +58,11 @@ export async function getMenuData(venueId: number): Promise<{
       .from(dishCategories)
       .where(eq(dishCategories.venueId, venueId))
       .orderBy(asc(dishCategories.sort), asc(dishCategories.id)),
+    db
+      .select()
+      .from(menuTypes)
+      .where(eq(menuTypes.venueId, venueId))
+      .orderBy(asc(menuTypes.sort), asc(menuTypes.id)),
     db
       .select()
       .from(dishes)
@@ -85,10 +93,12 @@ export async function getMenuData(venueId: number): Promise<{
       wastePct: i.wastePct,
     })),
     categories: cats.map((c) => ({ id: c.id, name: c.name })),
+    menuTypes: types.map((t) => ({ id: t.id, name: t.name })),
     dishes: dishRows.map((d) => ({
       id: d.id,
       name: d.name,
       categoryId: d.categoryId,
+      menuTypeId: d.menuTypeId,
       sellPrice: d.sellPrice,
       lines: lines
         .filter((l) => l.dishId === d.id)
@@ -135,6 +145,7 @@ export async function getPackages(venueId: number): Promise<MenuPackage[]> {
   return pkgRows.map((p) => ({
     id: p.id,
     name: p.name,
+    menuTypeId: p.menuTypeId,
     pricePerGuest: p.pricePerGuest,
     manualCostPerGuest: p.manualCostPerGuest,
     description: p.description,

@@ -276,12 +276,25 @@ export const dishCategories = pgTable("dish_categories", {
   sort: integer("sort").notNull().default(0),
 });
 
+// Top-level menu kind: traditional Georgian, buffet (ფურშეტი), etc.
+export const menuTypes = pgTable("menu_types", {
+  id: serial("id").primaryKey(),
+  venueId: integer("venue_id")
+    .notNull()
+    .references(() => venues.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  sort: integer("sort").notNull().default(0),
+});
+
 export const dishes = pgTable("dishes", {
   id: serial("id").primaryKey(),
   venueId: integer("venue_id")
     .notNull()
     .references(() => venues.id, { onDelete: "cascade" }),
   categoryId: integer("category_id").references(() => dishCategories.id, {
+    onDelete: "set null",
+  }),
+  menuTypeId: integer("menu_type_id").references(() => menuTypes.id, {
     onDelete: "set null",
   }),
   name: text("name").notNull(),
@@ -306,6 +319,9 @@ export const packages = pgTable("packages", {
   venueId: integer("venue_id")
     .notNull()
     .references(() => venues.id, { onDelete: "cascade" }),
+  menuTypeId: integer("menu_type_id").references(() => menuTypes.id, {
+    onDelete: "set null",
+  }),
   name: text("name").notNull(),
   pricePerGuest: money("price_per_guest").notNull().default(0),
   manualCostPerGuest: money("manual_cost_per_guest"),
