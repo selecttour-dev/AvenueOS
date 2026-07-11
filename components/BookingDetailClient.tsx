@@ -1000,7 +1000,7 @@ function DetailsPanel({ booking }: { booking: BookingDetail }) {
     startTime: booking.startTime ?? "",
     guestCount: String(booking.guestCount),
     pricePerGuest: String(booking.pricePerGuest),
-    extraCharges: String(booking.extraCharges),
+    total: String(bookingTotal(booking)),
     discount: String(booking.discount),
     clientName: booking.clientName ?? "",
     clientPhone: booking.clientPhone ?? "",
@@ -1010,17 +1010,27 @@ function DetailsPanel({ booking }: { booking: BookingDetail }) {
   const set = (k: keyof typeof form) => (v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
 
+  const guestsN = Number(form.guestCount) || 0;
+  const ppgN = Number(form.pricePerGuest) || 0;
+  const totalN = Number(form.total) || 0;
+  const discountN = Number(form.discount) || 0;
+  const menuPart = guestsN * ppgN;
+  const otherPart = totalN - menuPart; // rent + other (derived)
+
   const save = () =>
     startTransition(async () => {
+      // Total is the source of truth: extraCharges absorbs the non-menu part
+      // so that bookingTotal (guests×ppg + extra − discount) equals `total`.
+      const extra = Math.round((totalN - menuPart + discountN) * 100) / 100;
       await updateBooking(booking.id, {
         title: form.title,
         eventType: form.eventType,
         eventDate: form.eventDate,
         startTime: form.startTime || null,
-        guestCount: Number(form.guestCount) || 0,
-        pricePerGuest: Number(form.pricePerGuest) || 0,
-        extraCharges: Number(form.extraCharges) || 0,
-        discount: Number(form.discount) || 0,
+        guestCount: guestsN,
+        pricePerGuest: ppgN,
+        extraCharges: extra,
+        discount: discountN,
         clientName: form.clientName,
         clientPhone: form.clientPhone,
         notes: form.notes,
@@ -1043,9 +1053,23 @@ function DetailsPanel({ booking }: { booking: BookingDetail }) {
           <Field label="თარიღი" value={fmtDate(booking.eventDate)} />
           <Field label="დაწყება" value={booking.startTime || "—"} />
           <Field label="სტუმრები" value={String(booking.guestCount)} />
-          <Field label="ფასი სტუმარზე" value={gel(booking.pricePerGuest, 2)} />
-          <Field label="დამატ. საფასური" value={gel(booking.extraCharges)} />
-          <Field label="ფასდაკლება" value={gel(booking.discount)} />
+          <Field
+            label="ჯამური ღირებულება"
+            value={gel(bookingTotal(booking))}
+          />
+          <Field
+            label="ფასი სტუმარზე"
+            value={
+              booking.pricePerGuest
+                ? gel(booking.pricePerGuest, 2)
+                : booking.guestCount > 0
+                  ? `${gel(bookingTotal(booking) / booking.guestCount, 2)} (ჯამიდან)`
+                  : "—"
+            }
+          />
+          {booking.discount > 0 && (
+            <Field label="ფასდაკლება" value={gel(booking.discount)} />
+          )}
           <Field
             label="დამკვეთი"
             value={
@@ -1094,15 +1118,53 @@ function DetailsPanel({ booking }: { booking: BookingDetail }) {
         </div>
         <div>
           <label className="label">სტუმრები</label>
-          <input type="number" className="input" value={form.guestCount} onChange={(e) => set("guestCount")(e.target.value)} />
+          <input
+            type="number"
+            className="input"
+            value={form.guestCount}
+            onChange={(e) => {
+              const g = Number(e.target.value) || 0;
+              setForm((f) => ({
+                ...f,
+                guestCount: e.target.value,
+                // keep the non-menu (rent) part; total follows menu = g × ppg
+                total: String(Math.round((g * ppgN + otherPart) * 100) / 100),
+              }));
+            }}
+          />
         </div>
         <div>
-          <label className="label">ფასი სტუმარზე ₾</label>
-          <input type="number" className="input" value={form.pricePerGuest} onChange={(e) => set("pricePerGuest")(e.target.value)} />
+          <label className="label">ფასი სტუმარზე ₾ (მენიუ, არასავალდ.)</label>
+          <input
+            type="number"
+            className="input"
+            value={form.pricePerGuest}
+            onChange={(e) => {
+              const p = Number(e.target.value) || 0;
+              setForm((f) => ({
+                ...f,
+                pricePerGuest: e.target.value,
+                total: String(Math.round((guestsN * p + otherPart) * 100) / 100),
+              }));
+            }}
+          />
         </div>
-        <div>
-          <label className="label">დამატ. საფასური ₾</label>
-          <input type="number" className="input" value={form.extraCharges} onChange={(e) => set("extraCharges")(e.target.value)} />
+        <div className="sm:col-span-2">
+          <label className="label">ჯამური ღირებულება ₾ (რასაც იხდის)</label>
+          <input
+            type="number"
+            className="input"
+            value={form.total}
+            onChange={(e) => set("total")(e.target.value)}
+          />
+          <p className="mt-1.5 text-xs" style={{ color: "var(--text-3)" }}>
+            მენიუ ({guestsN} × {gel(ppgN, 2)}) = {gel(menuPart)}
+            {" · "}
+            იჯარა / სხვა: {gel(otherPart)}
+            {ppgN > 0 && totalN > 0 && (
+              <> {" · "} 1 სტუმარი: {gel(guestsN > 0 ? totalN / guestsN : 0, 2)}</>
+            )}
+          </p>
         </div>
         <div>
           <label className="label">ფასდაკლება ₾</label>
