@@ -16,19 +16,23 @@ import {
   createOperationalExpense,
   deleteFixedCost,
   deleteOperationalExpense,
+  saveIncomeTaxPct,
   updateFixedCost,
   updateOperationalExpense,
 } from "@/lib/actions";
 import type { FixedCostRow, OperationalExpenseRow } from "@/lib/queries";
 import { gel } from "@/lib/format";
 import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
+import { Percent } from "lucide-react";
 
 export default function FinanceClient({
   fixedCosts,
   operational,
+  incomeTaxPct,
 }: {
   fixedCosts: FixedCostRow[];
   operational: OperationalExpenseRow[];
+  incomeTaxPct: number;
 }) {
   const [tab, setTab] = useState<"fixed" | "operational">("fixed");
   const activeCosts = fixedCosts.filter((f) => f.active);
@@ -45,7 +49,8 @@ export default function FinanceClient({
     <>
       <PageHeader
         title="ფინანსები"
-        subtitle="ფიქსირებული ხარჯები და საერთო/ერთჯერადი ხარჯები (ავანსებიდან)"
+        subtitle="ფიქსირებული ხარჯები, საერთო ხარჯები და საშემოსავლო გადასახადი"
+        action={<IncomeTaxControl incomeTaxPct={incomeTaxPct} />}
       />
 
       <div className="mb-5 flex gap-2">
@@ -116,6 +121,37 @@ export default function FinanceClient({
         </>
       )}
     </>
+  );
+}
+
+function IncomeTaxControl({ incomeTaxPct }: { incomeTaxPct: number }) {
+  const [pending, startTransition] = useTransition();
+  const [val, setVal] = useState(String(incomeTaxPct));
+  return (
+    <div
+      className="flex items-center gap-2 rounded-xl px-3 py-1.5"
+      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+      title="საშემოსავლო/ბრუნვის გადასახადი — % შემოსავალზე"
+    >
+      <Percent size={14} style={{ color: "var(--text-3)" }} />
+      <span className="text-xs" style={{ color: "var(--text-2)" }}>
+        საშემოსავლო
+      </span>
+      <input
+        type="number"
+        className="input !w-16 !py-1 !text-sm"
+        value={val}
+        disabled={pending}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => {
+          const v = Number(val);
+          if (v >= 0 && v !== incomeTaxPct)
+            startTransition(() => saveIncomeTaxPct(v));
+        }}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+      <span className="text-xs" style={{ color: "var(--text-3)" }}>%</span>
+    </div>
   );
 }
 

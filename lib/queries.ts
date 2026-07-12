@@ -125,6 +125,18 @@ export async function getTargetFoodCostPct(venueId: number): Promise<number> {
   return Number.isFinite(n) && n > 0 ? n : 32;
 }
 
+/** Income (turnover) tax rate %, applied to revenue. 0 = none. */
+export async function getIncomeTaxPct(venueId: number): Promise<number> {
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(
+      and(eq(settings.venueId, venueId), eq(settings.key, "incomeTaxPct")),
+    );
+  const n = row ? Number(row.value) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
 export async function getPackages(venueId: number): Promise<MenuPackage[]> {
   const pkgRows = await db
     .select()
@@ -277,6 +289,9 @@ export type BookingDetail = BookingRow & {
   menuDishes: { id: number; dishId: number; qty: number; perGuest: boolean }[];
   payments: BookingPayment[];
   expenses: BookingExpense[];
+  // Actual money from the day register for this event's date.
+  actual: { income: number; wages: number; expenses: number };
+  incomeTaxPct: number;
 };
 
 export async function getBookingDetail(
@@ -308,7 +323,7 @@ export async function getBookingDetail(
     .where(and(eq(bookings.id, id), eq(bookings.venueId, venueId)));
   if (!b) return null;
 
-  const [pays, exps, menu] = await Promise.all([
+  const [pays, exps, menu, dayAgg, incomeTaxPct] = await Promise.all([
     db
       .select()
       .from(payments)
@@ -330,6 +345,15 @@ export async function getBookingDetail(
       .where(eq(ledger.bookingId, id))
       .orderBy(desc(ledger.entryDate), desc(ledger.id)),
     db.select().from(bookingDishes).where(eq(bookingDishes.bookingId, id)),
+    db
+      .select({
+        income: sql<number>`coalesce(sum(case when ${ledger.type} = 'income' then ${ledger.amount} * ${ledger.qty} end), 0)::float`,
+        wages: sql<number>`coalesce(sum(case when ${ledger.type} = 'wage' then ${ledger.amount} * ${ledger.qty} end), 0)::float`,
+        expenses: sql<number>`coalesce(sum(case when ${ledger.type} = 'expense' then ${ledger.amount} * ${ledger.qty} end), 0)::float`,
+      })
+      .from(ledger)
+      .where(and(eq(ledger.venueId, venueId), eq(ledger.entryDate, b.eventDate))),
+    getIncomeTaxPct(venueId),
   ]);
 
   const paidTotal = pays.reduce((s, p) => s + p.amount, 0);
@@ -360,6 +384,12 @@ export async function getBookingDetail(
       qty: m.qty,
       perGuest: m.perGuest,
     })),
+    actual: {
+      income: dayAgg[0]?.income ?? 0,
+      wages: dayAgg[0]?.wages ?? 0,
+      expenses: dayAgg[0]?.expenses ?? 0,
+    },
+    incomeTaxPct,
   };
 }
 

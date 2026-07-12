@@ -47,13 +47,19 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   card: "ბარათი",
 };
 
-/** Common suggested categories for event expenses. */
+/** Common suggested categories for event expenses (matches the venue's usage). */
 export const EXPENSE_CATEGORIES = [
-  "პროდუქტი",
+  "ბაზარი/პროდუქტი",
   "სასმელი",
-  "მომსახურე პერსონალი",
-  "მუსიკა / DJ",
-  "დეკორი",
+  "მზარეულები",
+  "მიმტანები",
+  "იჯარა",
+  "საშემოსავლო გადასახადი",
+  "მუსიკა/აპარატურა",
+  "გაფორმება",
   "ტრანსპორტი",
+  "ინვენტარი",
+  "გასამრჯელო",
+  "ჰიგიენა",
   "სხვა",
 ];

@@ -98,6 +98,13 @@ export default function BookingDetailClient({
     .reduce((s, e) => s + entryTotal(e), 0);
   const profit = planned + extraIncome - costTotal;
 
+  // Actual money from the day register for this event's date.
+  const a = booking.actual;
+  const actualCost = a.wages + a.expenses;
+  const actualTax = (a.income * booking.incomeTaxPct) / 100;
+  const actualProfit = a.income - actualCost - actualTax;
+  const hasActual = a.income > 0 || actualCost > 0;
+
   return (
     <>
       <Link
@@ -173,6 +180,50 @@ export default function BookingDetailClient({
           tone={profit >= 0 ? "green" : "red"}
         />
       </div>
+
+      {hasActual && (
+        <div className="mt-6">
+          <Section
+            title="ფაქტობრივი — დღის რეესტრიდან"
+            action={
+              <Link
+                href={`/register?date=${booking.eventDate}`}
+                className="text-sm font-semibold"
+                style={{ color: "var(--primary)" }}
+              >
+                რეესტრში →
+              </Link>
+            }
+          >
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <ActualBox label="ფაქტ. შემოსავალი" value={gel(a.income)} color="var(--green)" />
+              <ActualBox
+                label="ფაქტ. ხარჯი"
+                value={gel(actualCost)}
+                sub={a.wages > 0 ? `მათ შორის ხელფასი ${gel(a.wages)}` : undefined}
+                color="var(--red)"
+              />
+              <ActualBox
+                label={`საშემოსავლო (${booking.incomeTaxPct}%)`}
+                value={gel(actualTax)}
+                color="var(--red)"
+              />
+              <ActualBox
+                label="ფაქტ. მოგება"
+                value={gel(actualProfit)}
+                sub="შემოს. − ხარჯი − გადასახადი"
+                color={actualProfit >= 0 ? "var(--green)" : "var(--red)"}
+                strong
+              />
+            </div>
+            <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
+              ეს ციფრები დღის რეესტრიდან მოდის ({fmtDate(booking.eventDate)}) —
+              რეალური ფული, გეგმიურის ნაცვლად.
+              {booking.incomeTaxPct === 0 && " საშემოსავლო % ფინანსებში დააყენე."}
+            </p>
+          </Section>
+        </div>
+      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <DetailsPanel booking={booking} />
@@ -918,6 +969,33 @@ function InventoryNeeds({ needs }: { needs: InventoryNeed[] }) {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function ActualBox({
+  label,
+  value,
+  sub,
+  color,
+  strong,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  color: string;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      className="rounded-xl px-4 py-3"
+      style={{ background: "var(--surface-2)", border: strong ? "1px solid var(--border-strong)" : undefined }}
+    >
+      <div className="text-xs" style={{ color: "var(--text-3)" }}>{label}</div>
+      <div className={`mt-1 font-extrabold ${strong ? "text-xl" : "text-lg"}`} style={{ color }}>
+        {value}
+      </div>
+      {sub && <div className="text-xs" style={{ color: "var(--text-3)" }}>{sub}</div>}
     </div>
   );
 }

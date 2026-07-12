@@ -1418,6 +1418,22 @@ export async function saveTargetFoodCostPct(pct: number) {
   revalidatePath("/calc");
 }
 
+export async function saveIncomeTaxPct(pct: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  const clamped = Math.min(Math.max(pct || 0, 0), 100);
+  await db
+    .insert(settings)
+    .values({ venueId, key: "incomeTaxPct", value: String(clamped) })
+    .onConflictDoUpdate({
+      target: [settings.venueId, settings.key],
+      set: { value: String(clamped) },
+    });
+  revalidatePath("/finance");
+  revalidatePath("/register");
+  revalidatePath("/bookings", "layout");
+}
+
 export async function addRecipeLine(
   dishId: number,
   ingredientId: number,

@@ -1,5 +1,9 @@
 import { getActiveVenueId } from "@/lib/venue";
-import { getRegisterDay, getMonthSummary } from "@/lib/queries";
+import {
+  getRegisterDay,
+  getMonthSummary,
+  getIncomeTaxPct,
+} from "@/lib/queries";
 import { todayISO } from "@/lib/format";
 import RegisterClient from "@/components/RegisterClient";
 
@@ -17,10 +21,18 @@ export default async function RegisterPage({
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(date ?? "") ? date! : todayISO();
   const [y, m] = iso.split("-").map(Number);
 
-  const [day, month] = await Promise.all([
+  const [day, month, incomeTaxPct] = await Promise.all([
     getRegisterDay(venueId, iso),
     getMonthSummary(venueId, y, m),
+    getIncomeTaxPct(venueId),
   ]);
 
-  return <RegisterClient day={day} month={month} monthLabel={{ year: y, month: m }} />;
+  return (
+    <RegisterClient
+      day={day}
+      month={month}
+      monthLabel={{ year: y, month: m }}
+      incomeTaxPct={incomeTaxPct}
+    />
+  );
 }

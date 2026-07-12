@@ -53,10 +53,12 @@ export default function RegisterClient({
   day,
   month,
   monthLabel,
+  incomeTaxPct,
 }: {
   day: RegisterDay;
   month: MonthSummary;
   monthLabel: { year: number; month: number };
+  incomeTaxPct: number;
 }) {
   const [tab, setTab] = useState<"day" | "staff" | "month">("day");
 
@@ -83,7 +85,7 @@ export default function RegisterClient({
 
       {tab === "day" && <DayTab day={day} />}
       {tab === "staff" && <StaffTab staff={day.staff} />}
-      {tab === "month" && <MonthTab month={month} label={monthLabel} />}
+      {tab === "month" && <MonthTab month={month} label={monthLabel} incomeTaxPct={incomeTaxPct} />}
     </>
   );
 }
@@ -744,15 +746,19 @@ function StaffRow({ s }: { s: StaffMember }) {
 function MonthTab({
   month,
   label,
+  incomeTaxPct,
 }: {
   month: MonthSummary;
   label: { year: number; month: number };
+  incomeTaxPct: number;
 }) {
   const router = useRouter();
   const maxNet = useMemo(
     () => Math.max(1, ...month.dailyNet.map((d) => Math.abs(d.net))),
     [month.dailyNet],
   );
+  const tax = (month.income * incomeTaxPct) / 100;
+  const netAfterTax = month.net - tax;
 
   const goMonth = (delta: number) => {
     let y = label.year;
@@ -783,14 +789,24 @@ function MonthTab({
 
       <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={ArrowUpCircle} label="შემოსავალი" value={gel(month.income)} tone="green" />
-        <StatCard icon={UsersRound} label="ხელფასი" value={gel(month.wages)} tone="red" />
-        <StatCard icon={ArrowDownCircle} label="ხარჯი" value={gel(month.expenses)} tone="red" />
+        <StatCard icon={ArrowDownCircle} label="ხარჯი + ხელფასი" value={gel(month.expenses + month.wages)} tone="red" />
+        {incomeTaxPct > 0 ? (
+          <StatCard
+            icon={Wallet}
+            label={`სუფთა (გადასახ. წინ)`}
+            value={gel(month.net)}
+            hint={`გადასახადი ${incomeTaxPct}%: ${gel(tax)}`}
+            tone={month.net >= 0 ? "green" : "red"}
+          />
+        ) : (
+          <StatCard icon={UsersRound} label="ხელფასი" value={gel(month.wages)} tone="red" />
+        )}
         <StatCard
           icon={Wallet}
-          label="სუფთა"
-          value={gel(month.net)}
+          label={incomeTaxPct > 0 ? "სუფთა (გადასახ. შემდეგ)" : "სუფთა"}
+          value={gel(netAfterTax)}
           hint={`დახურული დღეები: ${month.closedDays}/${month.daysInMonth}`}
-          tone={month.net >= 0 ? "green" : "red"}
+          tone={netAfterTax >= 0 ? "green" : "red"}
         />
       </div>
 
