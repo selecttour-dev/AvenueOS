@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt, sql } from "drizzle-orm";
 import { db } from "./db";
 import { VENUE_COOKIE, getActiveVenueId } from "./venue";
 import {
@@ -1068,6 +1068,26 @@ export async function createBooking(input: BookingInput) {
   if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
   if (!input.title.trim() || !input.eventDate) {
     return { error: "სახელი და თარიღი სავალდებულოა" };
+  }
+
+  // Hard-block exact duplicates (same date + same title, not cancelled) —
+  // prevents the same event being entered twice by accident.
+  const [dup] = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.venueId, venueId),
+        eq(bookings.eventDate, input.eventDate),
+        sql`lower(trim(${bookings.title})) = ${input.title.trim().toLowerCase()}`,
+        sql`${bookings.status} <> 'cancelled'`,
+      ),
+    )
+    .limit(1);
+  if (dup) {
+    return {
+      error: "ზუსტად იგივე ჯავშანი ამ თარიღზე უკვე არსებობს — გახსენი და დაარედაქტირე.",
+    };
   }
 
   let clientId: number | null = null;

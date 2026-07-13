@@ -251,7 +251,7 @@ export default async function DashboardPage() {
                           >
                             {b.title}
                           </Link>
-                          {b.clientName && (
+                          {b.clientName && b.clientName !== b.title && (
                             <div className="text-xs" style={{ color: "var(--text-3)" }}>
                               {b.clientName}
                             </div>

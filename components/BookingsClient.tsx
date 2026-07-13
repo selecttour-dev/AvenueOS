@@ -311,12 +311,20 @@ function ListView({
                       <td className="whitespace-nowrap font-semibold">{fmtDateShort(b.eventDate)}</td>
                       <td>
                         <div className="font-semibold">{b.title}</div>
-                        {b.clientName && (
-                          <div className="text-xs" style={{ color: "var(--text-3)" }}>
-                            {b.clientName}
-                            {b.clientPhone ? ` · ${b.clientPhone}` : ""}
-                          </div>
-                        )}
+                        {(() => {
+                          // don't repeat the client name when it equals the title
+                          const sub = [
+                            b.clientName && b.clientName !== b.title ? b.clientName : null,
+                            b.clientPhone,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ");
+                          return sub ? (
+                            <div className="text-xs" style={{ color: "var(--text-3)" }}>
+                              {sub}
+                            </div>
+                          ) : null;
+                        })()}
                       </td>
                       <td>{EVENT_TYPE_LABELS[b.eventType] ?? b.eventType}</td>
                       <td>{b.guestCount}</td>
