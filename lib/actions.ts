@@ -1209,7 +1209,23 @@ export async function updateBookingStatus(bookingId: number, status: string) {
     .where(eq(bookings.id, bookingId));
   revalidatePath("/bookings");
   revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/receivables");
   revalidatePath("/");
+}
+
+/** Set the lump-sum total a client pays (menu + rent) as a single number.
+ *  Stored as extraCharges with ppg=0 so bookingTotal() == this value. */
+export async function setBookingLumpSum(bookingId: number, total: number) {
+  const t = Math.max(total || 0, 0);
+  await db
+    .update(bookings)
+    .set({ pricePerGuest: 0, extraCharges: t, discount: 0 })
+    .where(eq(bookings.id, bookingId));
+  revalidatePath("/bookings");
+  revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/receivables");
+  revalidatePath("/");
+  return { ok: true };
 }
 
 export async function updateBooking(

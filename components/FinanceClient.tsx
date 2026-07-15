@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import {
   CalendarDays,
-  HandCoins,
   Plus,
   ReceiptText,
   Trash2,
@@ -48,12 +47,8 @@ export default function FinanceClient({
   const activeCosts = fixedCosts.filter((f) => f.active);
   const monthlyTotal = activeCosts.reduce((s, f) => s + f.monthlyAmount, 0);
 
-  const opCost = operational
-    .filter((o) => o.kind !== "partner_advance")
-    .reduce((s, o) => s + o.amount, 0);
-  const partnerAdvance = operational
-    .filter((o) => o.kind === "partner_advance")
-    .reduce((s, o) => s + o.amount, 0);
+  // Partner advances now live in the Partners tab; everything here is operational.
+  const opCost = operational.reduce((s, o) => s + o.amount, 0);
 
   return (
     <>
@@ -103,37 +98,30 @@ export default function FinanceClient({
         </>
       ) : (
         <>
-          <div className="mb-5 grid gap-4 sm:grid-cols-3">
+          <div className="mb-5 grid gap-4 sm:grid-cols-2">
             <StatCard
               icon={TrendingDown}
-              label="ოპერაციული (მოგებიდან)"
+              label="ოპერაციული ხარჯები"
               value={gel(opCost)}
-              hint="მოგებიდან იქვითება"
-              tone="red"
+              hint="საერთო მოგებიდან იქვითება"
+              tone={opCost > 0 ? "red" : "default"}
             />
             <StatCard
-              icon={Users}
-              label="პარტნიორის ავანსი"
-              value={gel(partnerAdvance)}
-              hint="მომავალი მოგებიდან ამოსაღები"
-              tone="gold"
-            />
-            <StatCard
-              icon={HandCoins}
-              label="სულ ავანსებიდან"
-              value={gel(opCost + partnerAdvance)}
+              icon={ReceiptText}
+              label="ჩანაწერების რაოდენობა"
+              value={String(operational.length)}
               tone="default"
             />
           </div>
-          <OperationalSection operational={operational} opCost={opCost} partnerAdvance={partnerAdvance} />
+          <OperationalSection operational={operational} />
           <div
             className="mt-5 rounded-xl px-4 py-3 text-sm leading-relaxed"
             style={{ background: "var(--surface-2)", color: "var(--text-2)" }}
           >
-            💡 <b>ოპერაციული</b> ხარჯი (ჭურჭელი, ინვენტარი, ბუსტი…) იქვითება
-            საერთო მოგებიდან. <b>პარტნიორის ავანსი</b> — რაც პარტნიორმა წინასწარ
-            აიღო ავანსებიდან — მოგების განაწილებაა და მომავალი ღონისძიებების
-            მოგებიდან ამოიღება (ხარჯად არ ითვლება).
+            💡 <b>ოპერაციული / ერთჯერადი</b> ხარჯი (ჭურჭელი, ინვენტარი, ბუსტი,
+            გაფორმება…) იქვითება საერთო მოგებიდან — ანუ ამცირებს პარტნიორებზე
+            გასანაწილებელ თანხას. პარტნიორის მიერ წინასწარ აღებული ავანსი{" "}
+            <b>„პარტნიორები"</b> ტაბშია.
           </div>
         </>
       )}
@@ -190,26 +178,18 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
 
 // ---------------- Operational / common expenses ----------------
 
-const KIND_LABELS: Record<string, string> = {
-  operational: "ოპერაციული",
-  partner_advance: "პარტნიორის ავანსი",
-};
-
 function OperationalSection({
   operational,
-  opCost,
-  partnerAdvance,
 }: {
   operational: OperationalExpenseRow[];
-  opCost: number;
-  partnerAdvance: number;
 }) {
   const [pending, startTransition] = useTransition();
-  const [form, setForm] = useState({ name: "", amount: "", kind: "operational", category: "" });
+  const [form, setForm] = useState({ name: "", amount: "", category: "" });
+  const opCost = operational.reduce((s, o) => s + o.amount, 0);
 
   return (
     <Section title="საერთო / ერთჯერადი ხარჯები">
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="lg:col-span-2">
           <label className="label">დასახელება</label>
           <input
@@ -218,13 +198,6 @@ function OperationalSection({
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
-        </div>
-        <div>
-          <label className="label">ტიპი</label>
-          <select className="select" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
-            <option value="operational">ოპერაციული</option>
-            <option value="partner_advance">პარტნიორის ავანსი</option>
-          </select>
         </div>
         <div>
           <label className="label">თანხა ₾</label>
@@ -245,10 +218,10 @@ function OperationalSection({
                 await createOperationalExpense({
                   name: form.name,
                   amount: Number(form.amount) || 0,
-                  kind: form.kind,
+                  kind: "operational",
                   category: form.category,
                 });
-                setForm({ name: "", amount: "", kind: form.kind, category: "" });
+                setForm({ name: "", amount: "", category: "" });
               })
             }
           >
@@ -261,7 +234,7 @@ function OperationalSection({
         <EmptyState
           icon={ReceiptText}
           title="საერთო ხარჯები არ არის"
-          text="ჩაწერე ერთჯერადი/ოპერაციული ხარჯები (ჭურჭელი, ინვენტარი, ბუსტი) და პარტნიორის ავანსით აღებული თანხები."
+          text="ჩაწერე ერთჯერადი/ოპერაციული ხარჯები — ჭურჭელი, ინვენტარი, ბუსტი, გაფორმება."
         />
       ) : (
         <div className="table-wrap -m-5">
@@ -269,8 +242,7 @@ function OperationalSection({
             <thead>
               <tr>
                 <th>დასახელება</th>
-                <th>ტიპი</th>
-                <th>თანხა</th>
+                <th className="text-right">თანხა</th>
                 <th></th>
               </tr>
             </thead>
@@ -279,10 +251,8 @@ function OperationalSection({
                 <OpRow key={o.id} o={o} />
               ))}
               <tr style={{ borderTop: "2px solid var(--border)" }}>
-                <td colSpan={2} className="font-bold">
-                  ჯამი: ოპერაციული {gel(opCost)} · ავანსი {gel(partnerAdvance)}
-                </td>
-                <td className="font-extrabold">{gel(opCost + partnerAdvance)}</td>
+                <td className="font-bold">ჯამი</td>
+                <td className="text-right font-extrabold">{gel(opCost)}</td>
                 <td></td>
               </tr>
             </tbody>
@@ -296,37 +266,15 @@ function OperationalSection({
 function OpRow({ o }: { o: OperationalExpenseRow }) {
   const [pending, startTransition] = useTransition();
   const [amount, setAmount] = useState(String(o.amount));
-  const partner = o.kind === "partner_advance";
 
   return (
     <tr>
       <td className="font-semibold">{o.name}</td>
       <td>
-        <button
-          className="badge cursor-pointer"
-          style={
-            partner
-              ? { background: "var(--gold-soft)", color: "var(--gold)" }
-              : { background: "var(--red-soft)", color: "var(--red)" }
-          }
-          disabled={pending}
-          title="ტიპის შეცვლა"
-          onClick={() =>
-            startTransition(() =>
-              updateOperationalExpense(o.id, {
-                kind: partner ? "operational" : "partner_advance",
-              }),
-            )
-          }
-        >
-          {KIND_LABELS[o.kind] ?? o.kind}
-        </button>
-      </td>
-      <td>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-end gap-1.5">
           <input
             type="number"
-            className="input !w-28 !py-1.5"
+            className="input !w-28 !py-1.5 text-right"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             onBlur={() => {

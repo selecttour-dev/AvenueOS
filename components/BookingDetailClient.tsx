@@ -34,6 +34,7 @@ import {
   deleteBookingDish,
   deleteBookingLedgerEntry,
   deletePayment,
+  setBookingLumpSum,
   setBookingPackage,
   updateBooking,
   updateBookingDish,
@@ -88,6 +89,12 @@ export default function BookingDetailClient({
   const planned = bookingTotal(booking);
   const paid = booking.paidTotal;
   const outstanding = Math.max(planned - paid, 0);
+
+  // Nudge to capture the price once a booking is confirmed/done but has no total.
+  const needsPrice =
+    (booking.status === "confirmed" || booking.status === "completed") &&
+    planned <= 0;
+  const [priceInput, setPriceInput] = useState("");
 
   const entryTotal = (e: { amount: number; qty: number }) => e.amount * e.qty;
   const costTotal = booking.expenses
@@ -149,6 +156,43 @@ export default function BookingDetailClient({
           </div>
         }
       />
+
+      {needsPrice && (
+        <div
+          className="mb-5 rounded-xl px-4 py-3.5"
+          style={{ background: "var(--gold-soft)", border: "1px solid var(--gold)" }}
+        >
+          <div className="flex items-center gap-2 text-sm font-bold" style={{ color: "var(--gold)" }}>
+            <AlertTriangle size={16} /> ფასი არ არის ჩაწერილი
+          </div>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-2)" }}>
+            ჩაწერე ჯამური თანხა (მენიუ + იჯარა), რომ ეს ღონისძიება „გადასახდელებში"
+            გამოჩნდეს და გადახდები აკონტროლდეს.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              type="number"
+              className="input !w-40"
+              placeholder="ჯამური თანხა ₾"
+              value={priceInput}
+              onChange={(e) => setPriceInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+            <button
+              className="btn btn-primary"
+              disabled={pending || !(Number(priceInput) > 0)}
+              onClick={() =>
+                startTransition(async () => {
+                  await setBookingLumpSum(booking.id, Number(priceInput) || 0);
+                  setPriceInput("");
+                })
+              }
+            >
+              <Save size={15} /> შენახვა
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
