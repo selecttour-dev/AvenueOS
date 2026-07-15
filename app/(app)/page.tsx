@@ -35,7 +35,7 @@ export default async function DashboardPage() {
 
   const attention = [
     s.outstandingCount > 0 && {
-      href: "/bookings",
+      href: "/receivables",
       icon: Hourglass,
       text: `${s.outstandingCount} ჯავშანი გადაუხდელი`,
       hint: gel(s.outstanding),
