@@ -12,16 +12,24 @@ import {
   Wallet,
 } from "lucide-react";
 import {
+  addPartnerDraw,
   createFixedCost,
   createOperationalExpense,
+  createPartner,
   deleteFixedCost,
   deleteOperationalExpense,
+  deletePartnerDraw,
   saveIncomeTaxPct,
   updateFixedCost,
   updateOperationalExpense,
+  updatePartner,
 } from "@/lib/actions";
-import type { FixedCostRow, OperationalExpenseRow } from "@/lib/queries";
-import { gel } from "@/lib/format";
+import type {
+  FixedCostRow,
+  OperationalExpenseRow,
+  PartnersData,
+} from "@/lib/queries";
+import { gel, fmtDateShort, todayISO } from "@/lib/format";
 import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
 import { Percent } from "lucide-react";
 
@@ -29,12 +37,14 @@ export default function FinanceClient({
   fixedCosts,
   operational,
   incomeTaxPct,
+  partnersData,
 }: {
   fixedCosts: FixedCostRow[];
   operational: OperationalExpenseRow[];
   incomeTaxPct: number;
+  partnersData: PartnersData;
 }) {
-  const [tab, setTab] = useState<"fixed" | "operational">("fixed");
+  const [tab, setTab] = useState<"fixed" | "operational" | "partners">("fixed");
   const activeCosts = fixedCosts.filter((f) => f.active);
   const monthlyTotal = activeCosts.reduce((s, f) => s + f.monthlyAmount, 0);
 
@@ -53,16 +63,23 @@ export default function FinanceClient({
         action={<IncomeTaxControl incomeTaxPct={incomeTaxPct} />}
       />
 
-      <div className="mb-5 flex gap-2">
+      <div className="mb-5 flex flex-wrap gap-2">
         <TabButton active={tab === "fixed"} onClick={() => setTab("fixed")} label="ფიქსირებული ხარჯები" />
         <TabButton
           active={tab === "operational"}
           onClick={() => setTab("operational")}
           label={`საერთო ხარჯები (${operational.length})`}
         />
+        <TabButton
+          active={tab === "partners"}
+          onClick={() => setTab("partners")}
+          label={`პარტნიორები (${partnersData.partners.length})`}
+        />
       </div>
 
-      {tab === "fixed" ? (
+      {tab === "partners" ? (
+        <PartnersTab data={partnersData} />
+      ) : tab === "fixed" ? (
         <>
           <div className="mb-5 grid gap-4 sm:grid-cols-3">
             <StatCard icon={ReceiptText} label="აქტიური ხარჯები" value={String(activeCosts.length)} tone="primary" />
@@ -521,5 +538,282 @@ function FixedCostRowView({ fc, share }: { fc: FixedCostRow; share: number }) {
         </div>
       </td>
     </tr>
+  );
+}
+
+// ---------------- Partners (profit split) ----------------
+
+function PartnersTab({ data }: { data: PartnersData }) {
+  const { partners, draws, totals } = data;
+  const [pending, startTransition] = useTransition();
+  const [drawForm, setDrawForm] = useState({
+    partnerId: partners[0] ? String(partners[0].id) : "",
+    drawDate: todayISO(),
+    amount: "",
+    note: "",
+  });
+  const [newPartner, setNewPartner] = useState({ name: "", pct: "" });
+
+  return (
+    <>
+      {/* distributable profit breakdown */}
+      <Section title="განაწილებადი მოგება" className="mb-5">
+        <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+          <Line label="შემოსავალი" value={gel(totals.income)} color="var(--green)" />
+          <Line label="− ხარჯი/ხელფასი" value={gel(totals.costs)} color="var(--red)" />
+          <Line label="− გადასახადი" value={gel(totals.tax)} color="var(--red)" />
+          <Line label="− საერთო ხარჯები" value={gel(totals.operational)} color="var(--red)" />
+          <Line
+            label="= გასანაწილებელი"
+            value={gel(totals.distributable)}
+            color={totals.distributable >= 0 ? "var(--green)" : "var(--red)"}
+            strong
+          />
+        </div>
+      </Section>
+
+      {/* partner cards */}
+      <div className="mb-5 grid gap-4 sm:grid-cols-2">
+        {partners.map((p) => (
+          <PartnerCard key={p.id} p={p} />
+        ))}
+      </div>
+
+      {/* add draw */}
+      <Section title="თანხის გატანა (ავანსი/მოგების აღება)" className="mb-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div>
+            <label className="label">პარტნიორი</label>
+            <select
+              className="select"
+              value={drawForm.partnerId}
+              onChange={(e) => setDrawForm({ ...drawForm, partnerId: e.target.value })}
+            >
+              {partners.filter((p) => p.active).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">თარიღი</label>
+            <input
+              type="date"
+              className="input"
+              value={drawForm.drawDate}
+              onChange={(e) => setDrawForm({ ...drawForm, drawDate: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">თანხა ₾</label>
+            <input
+              type="number"
+              className="input"
+              placeholder="0.00"
+              value={drawForm.amount}
+              onChange={(e) => setDrawForm({ ...drawForm, amount: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">შენიშვნა</label>
+            <input
+              className="input"
+              placeholder="მაგ. ავანსი"
+              value={drawForm.note}
+              onChange={(e) => setDrawForm({ ...drawForm, note: e.target.value })}
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              className="btn btn-primary w-full"
+              disabled={pending || !drawForm.partnerId || !(Number(drawForm.amount) > 0)}
+              onClick={() =>
+                startTransition(async () => {
+                  await addPartnerDraw({
+                    partnerId: Number(drawForm.partnerId),
+                    drawDate: drawForm.drawDate,
+                    amount: Number(drawForm.amount) || 0,
+                    note: drawForm.note,
+                  });
+                  setDrawForm({ ...drawForm, amount: "", note: "" });
+                })
+              }
+            >
+              <Plus size={16} /> გატანა
+            </button>
+          </div>
+        </div>
+      </Section>
+
+      {/* draw history */}
+      <Section title={`გატანების ისტორია (${draws.length})`} className="mb-5">
+        {draws.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title="გატანები არ არის"
+            text="აქ დაფიქსირდება ყოველი თანხა, რომელსაც პარტნიორი იღებს — ავანსი თუ მოგების წილი."
+          />
+        ) : (
+          <div className="table-wrap -m-5">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>თარიღი</th>
+                  <th>პარტნიორი</th>
+                  <th>შენიშვნა</th>
+                  <th>თანხა</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {draws.map((d) => (
+                  <tr key={d.id}>
+                    <td className="whitespace-nowrap">{fmtDateShort(d.drawDate)}</td>
+                    <td className="font-semibold">{d.partnerName}</td>
+                    <td style={{ color: "var(--text-3)" }}>{d.note ?? "—"}</td>
+                    <td className="font-bold">{gel(d.amount)}</td>
+                    <td>
+                      <div className="flex justify-end">
+                        <button
+                          className="btn btn-danger !px-2.5 !py-1.5"
+                          disabled={pending}
+                          onClick={() => {
+                            if (confirm("წავშალო გატანა?"))
+                              startTransition(() => deletePartnerDraw(d.id));
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      {/* add partner */}
+      <Section title="ახალი პარტნიორი">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-40 flex-1">
+            <label className="label">სახელი</label>
+            <input
+              className="input"
+              value={newPartner.name}
+              onChange={(e) => setNewPartner({ ...newPartner, name: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">წილი %</label>
+            <input
+              type="number"
+              className="input !w-24"
+              placeholder="50"
+              value={newPartner.pct}
+              onChange={(e) => setNewPartner({ ...newPartner, pct: e.target.value })}
+            />
+          </div>
+          <button
+            className="btn btn-ghost"
+            disabled={pending || !newPartner.name.trim()}
+            onClick={() =>
+              startTransition(async () => {
+                await createPartner({
+                  name: newPartner.name,
+                  sharePct: Number(newPartner.pct) || 0,
+                });
+                setNewPartner({ name: "", pct: "" });
+              })
+            }
+          >
+            <Plus size={15} /> დამატება
+          </button>
+        </div>
+        <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
+          წილების ჯამი:{" "}
+          {partners.filter((p) => p.active).reduce((s, p) => s + p.sharePct, 0)}%
+        </p>
+      </Section>
+    </>
+  );
+}
+
+function Line({
+  label,
+  value,
+  color,
+  strong,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className="rounded-xl px-4 py-3" style={{ background: "var(--surface-2)" }}>
+      <div className="text-xs" style={{ color: "var(--text-3)" }}>{label}</div>
+      <div
+        className={`mt-1 font-extrabold ${strong ? "text-xl" : "text-lg"}`}
+        style={color ? { color } : undefined}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function PartnerCard({ p }: { p: PartnersData["partners"][number] }) {
+  const [pending, startTransition] = useTransition();
+  const [pct, setPct] = useState(String(p.sharePct));
+
+  return (
+    <div className="card p-5" style={p.active ? undefined : { opacity: 0.55 }}>
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-extrabold">{p.name}</div>
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            className="input !w-20 !py-1"
+            value={pct}
+            disabled={pending}
+            onChange={(e) => setPct(e.target.value)}
+            onBlur={() => {
+              const v = Number(pct);
+              if (v >= 0 && v !== p.sharePct)
+                startTransition(() => updatePartner(p.id, { sharePct: v }));
+            }}
+            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+          />
+          <span className="text-xs" style={{ color: "var(--text-3)" }}>%</span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+        <div>
+          <div className="text-xs" style={{ color: "var(--text-3)" }}>კუთვნილი</div>
+          <div className="mt-0.5 font-bold">{gel(p.allocated)}</div>
+        </div>
+        <div>
+          <div className="text-xs" style={{ color: "var(--text-3)" }}>გატანილი</div>
+          <div className="mt-0.5 font-bold" style={{ color: "var(--red)" }}>{gel(p.drawn)}</div>
+        </div>
+        <div>
+          <div className="text-xs" style={{ color: "var(--text-3)" }}>მისაღები</div>
+          <div
+            className="mt-0.5 text-lg font-extrabold"
+            style={{ color: p.balance >= 0 ? "var(--green)" : "var(--red)" }}
+          >
+            {gel(p.balance)}
+          </div>
+        </div>
+      </div>
+
+      {p.balance < 0 && (
+        <p className="mt-3 rounded-lg px-3 py-2 text-xs" style={{ background: "var(--amber-soft)", color: "var(--amber)" }}>
+          ავანსით მეტი აქვს აღებული — სხვაობა მომავალი მოგებიდან გაიქვითება.
+        </p>
+      )}
+    </div>
   );
 }

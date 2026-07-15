@@ -49,16 +49,20 @@ function shiftDate(iso: string, days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+type PartnerLite = { id: number; name: string; sharePct: number };
+
 export default function RegisterClient({
   day,
   month,
   monthLabel,
   incomeTaxPct,
+  partners,
 }: {
   day: RegisterDay;
   month: MonthSummary;
   monthLabel: { year: number; month: number };
   incomeTaxPct: number;
+  partners: PartnerLite[];
 }) {
   const [tab, setTab] = useState<"day" | "staff" | "month">("day");
 
@@ -83,9 +87,16 @@ export default function RegisterClient({
         />
       </div>
 
-      {tab === "day" && <DayTab day={day} />}
+      {tab === "day" && <DayTab day={day} partners={partners} />}
       {tab === "staff" && <StaffTab staff={day.staff} />}
-      {tab === "month" && <MonthTab month={month} label={monthLabel} incomeTaxPct={incomeTaxPct} />}
+      {tab === "month" && (
+        <MonthTab
+          month={month}
+          label={monthLabel}
+          incomeTaxPct={incomeTaxPct}
+          partners={partners}
+        />
+      )}
     </>
   );
 }
@@ -120,7 +131,7 @@ function TabButton({
 
 // ---------------- Day ----------------
 
-function DayTab({ day }: { day: RegisterDay }) {
+function DayTab({ day, partners }: { day: RegisterDay; partners: PartnerLite[] }) {
   const router = useRouter();
   const locked = !!day.close;
 
@@ -228,7 +239,7 @@ function DayTab({ day }: { day: RegisterDay }) {
           )}
           <EntriesPanel day={day} locked={locked} />
         </div>
-        <ZReportPanel day={day} />
+        <ZReportPanel day={day} partners={partners} />
       </div>
     </>
   );
@@ -501,7 +512,7 @@ function EntriesPanel({ day, locked }: { day: RegisterDay; locked: boolean }) {
   );
 }
 
-function ZReportPanel({ day }: { day: RegisterDay }) {
+function ZReportPanel({ day, partners }: { day: RegisterDay; partners: PartnerLite[] }) {
   const [pending, startTransition] = useTransition();
   const [counted, setCounted] = useState(
     day.close?.countedCash != null ? String(day.close.countedCash) : "",
@@ -521,6 +532,27 @@ function ZReportPanel({ day }: { day: RegisterDay }) {
           <ZLine label="მოსალოდნელი ნაღდი" value={gel(expected)} strong />
         </div>
       </div>
+
+      {partners.length > 0 && day.net !== 0 && (
+        <div
+          className="mt-4 rounded-xl px-4 py-3"
+          style={{ background: "var(--surface-2)" }}
+        >
+          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-bold" style={{ color: "var(--text-2)" }}>
+            <Users size={13} /> დღის მოგების განაწილება
+          </div>
+          <div className="flex flex-col gap-1 text-sm">
+            {partners.map((p) => (
+              <div key={p.id} className="flex items-center justify-between">
+                <span style={{ color: "var(--text-2)" }}>
+                  {p.name} ({p.sharePct}%)
+                </span>
+                <span className="font-bold">{gel((day.net * p.sharePct) / 100)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4">
         <label className="label">დათვლილი ნაღდი (ფაქტი)</label>
@@ -747,10 +779,12 @@ function MonthTab({
   month,
   label,
   incomeTaxPct,
+  partners,
 }: {
   month: MonthSummary;
   label: { year: number; month: number };
   incomeTaxPct: number;
+  partners: PartnerLite[];
 }) {
   const router = useRouter();
   const maxNet = useMemo(
@@ -809,6 +843,26 @@ function MonthTab({
           tone={netAfterTax >= 0 ? "green" : "red"}
         />
       </div>
+
+      {partners.length > 0 && netAfterTax !== 0 && (
+        <div
+          className="mb-5 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl px-4 py-3 text-sm"
+          style={{ background: "var(--surface-2)" }}
+        >
+          <span className="flex items-center gap-1.5 text-xs font-bold" style={{ color: "var(--text-2)" }}>
+            <Users size={13} /> თვის განაწილება:
+          </span>
+          {partners.map((p) => (
+            <span key={p.id}>
+              {p.name} ({p.sharePct}%):{" "}
+              <b>{gel((netAfterTax * p.sharePct) / 100)}</b>
+            </span>
+          ))}
+          <Link href="/finance" className="text-xs underline" style={{ color: "var(--primary)" }}>
+            ბალანსები ფინანსებში →
+          </Link>
+        </div>
+      )}
 
       <Section title="დღეების დინამიკა" className="mb-5">
         <div className="flex items-end gap-0.5" style={{ height: 120 }}>

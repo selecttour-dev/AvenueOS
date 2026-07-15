@@ -186,6 +186,11 @@ export const ledger = pgTable(
     bookingId: integer("booking_id").references(() => bookings.id, {
       onDelete: "set null",
     }),
+    // Set when this income row mirrors a booking payment — deleting the
+    // payment removes the register row too (single source of truth).
+    paymentId: integer("payment_id").references(() => payments.id, {
+      onDelete: "cascade",
+    }),
     amount: money("amount").notNull(),
     qty: numeric("qty", { precision: 10, scale: 2, mode: "number" })
       .notNull()
@@ -436,5 +441,34 @@ export const operationalExpenses = pgTable("operational_expenses", {
   category: text("category"),
   note: text("note"),
   spentOn: date("spent_on"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ---------- Partners (profit split) ----------
+
+export const partners = pgTable("partners", {
+  id: serial("id").primaryKey(),
+  venueId: integer("venue_id")
+    .notNull()
+    .references(() => venues.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  sharePct: numeric("share_pct", { precision: 5, scale: 2, mode: "number" })
+    .notNull()
+    .default(50),
+  active: boolean("active").notNull().default(true),
+});
+
+// Money a partner has taken out (advance or profit withdrawal).
+export const partnerDraws = pgTable("partner_draws", {
+  id: serial("id").primaryKey(),
+  venueId: integer("venue_id")
+    .notNull()
+    .references(() => venues.id, { onDelete: "cascade" }),
+  partnerId: integer("partner_id")
+    .notNull()
+    .references(() => partners.id, { onDelete: "cascade" }),
+  drawDate: date("draw_date").notNull(),
+  amount: money("amount").notNull(),
+  note: text("note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

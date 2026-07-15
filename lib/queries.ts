@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   bookingDishes,
@@ -16,6 +16,8 @@ import {
   menuTypes,
   operationalExpenses,
   packageDishes,
+  partnerDraws,
+  partners,
   packages,
   payments,
   purchases,
@@ -205,6 +207,122 @@ export async function getOperationalExpenses(
   }));
 }
 
+// ---------- partners (profit split) ----------
+
+export type PartnerRow = {
+  id: number;
+  name: string;
+  sharePct: number;
+  active: boolean;
+  allocated: number; // share of distributable profit
+  drawn: number; // Σ draws (advances + withdrawals)
+  balance: number; // allocated − drawn
+};
+
+export type PartnerDrawRow = {
+  id: number;
+  partnerId: number;
+  partnerName: string;
+  drawDate: string;
+  amount: number;
+  note: string | null;
+};
+
+export type PartnersData = {
+  partners: PartnerRow[];
+  draws: PartnerDrawRow[];
+  totals: {
+    income: number;
+    costs: number; // wages + expenses from ledger
+    tax: number;
+    operational: number; // one-off operational expenses
+    distributable: number;
+  };
+};
+
+/** Distributable profit = ledger income − ledger costs − income tax − operational one-offs. */
+export async function getPartnersData(venueId: number): Promise<PartnersData> {
+  const [partnerRows, drawRows, ledgerAgg, opAgg, taxPct] = await Promise.all([
+    db
+      .select()
+      .from(partners)
+      .where(eq(partners.venueId, venueId))
+      .orderBy(asc(partners.id)),
+    db
+      .select({
+        id: partnerDraws.id,
+        partnerId: partnerDraws.partnerId,
+        partnerName: partners.name,
+        drawDate: partnerDraws.drawDate,
+        amount: partnerDraws.amount,
+        note: partnerDraws.note,
+      })
+      .from(partnerDraws)
+      .innerJoin(partners, eq(partners.id, partnerDraws.partnerId))
+      .where(eq(partnerDraws.venueId, venueId))
+      .orderBy(desc(partnerDraws.drawDate), desc(partnerDraws.id)),
+    db
+      .select({
+        income: sql<number>`coalesce(sum(case when ${ledger.type} = 'income' then ${ledger.amount} * ${ledger.qty} end), 0)::float`,
+        costs: sql<number>`coalesce(sum(case when ${ledger.type} in ('expense','wage') then ${ledger.amount} * ${ledger.qty} end), 0)::float`,
+      })
+      .from(ledger)
+      .where(eq(ledger.venueId, venueId)),
+    db
+      .select({
+        total: sql<number>`coalesce(sum(${operationalExpenses.amount}), 0)::float`,
+      })
+      .from(operationalExpenses)
+      .where(
+        and(
+          eq(operationalExpenses.venueId, venueId),
+          eq(operationalExpenses.kind, "operational"),
+        ),
+      ),
+    getIncomeTaxPct(venueId),
+  ]);
+
+  const income = ledgerAgg[0]?.income ?? 0;
+  const costs = ledgerAgg[0]?.costs ?? 0;
+  const tax = (income * taxPct) / 100;
+  const operational = opAgg[0]?.total ?? 0;
+  const distributable = income - costs - tax - operational;
+
+  const drawnByPartner = new Map<number, number>();
+  for (const d of drawRows)
+    drawnByPartner.set(d.partnerId, (drawnByPartner.get(d.partnerId) ?? 0) + d.amount);
+
+  return {
+    partners: partnerRows.map((p) => {
+      const allocated = p.active ? (distributable * p.sharePct) / 100 : 0;
+      const drawn = drawnByPartner.get(p.id) ?? 0;
+      return {
+        id: p.id,
+        name: p.name,
+        sharePct: p.sharePct,
+        active: p.active,
+        allocated,
+        drawn,
+        balance: allocated - drawn,
+      };
+    }),
+    draws: drawRows,
+    totals: { income, costs, tax, operational, distributable },
+  };
+}
+
+/** Lightweight list for showing day/month splits in the register. */
+export async function getPartnersLite(
+  venueId: number,
+): Promise<{ id: number; name: string; sharePct: number }[]> {
+  const rows = await db
+    .select()
+    .from(partners)
+    .where(and(eq(partners.venueId, venueId), eq(partners.active, true)))
+    .orderBy(asc(partners.id));
+  return rows.map((p) => ({ id: p.id, name: p.name, sharePct: p.sharePct }));
+}
+
 export async function getFixedCosts(venueId: number): Promise<FixedCostRow[]> {
   const rows = await db
     .select()
@@ -342,7 +460,8 @@ export async function getBookingDetail(
       })
       .from(ledger)
       .leftJoin(staff, eq(ledger.staffId, staff.id))
-      .where(eq(ledger.bookingId, id))
+      // payment mirrors are shown in the payments panel, not here
+      .where(and(eq(ledger.bookingId, id), isNull(ledger.paymentId)))
       .orderBy(desc(ledger.entryDate), desc(ledger.id)),
     db.select().from(bookingDishes).where(eq(bookingDishes.bookingId, id)),
     db

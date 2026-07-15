@@ -22,6 +22,8 @@ import {
   menuTypes,
   operationalExpenses,
   packageDishes,
+  partnerDraws,
+  partners,
   packages,
   payments,
   purchases,
@@ -374,6 +376,12 @@ export async function addLedgerEntry(input: {
   if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
   if (!input.entryDate) return { error: "თარიღი აუცილებელია" };
 
+  // Income linked to a booking = a payment: create it through the payment
+  // flow so the booking's paid total and the register stay one record.
+  if (input.type === "income" && input.bookingId) {
+    return addPayment(input.bookingId, input.amount, input.entryDate, "cash");
+  }
+
   await db.insert(ledger).values({
     venueId,
     entryDate: input.entryDate,
@@ -393,7 +401,18 @@ export async function addLedgerEntry(input: {
 }
 
 export async function deleteLedgerEntry(id: number) {
-  await db.delete(ledger).where(eq(ledger.id, id));
+  // Payment mirrors are deleted through the payment (cascade removes the row).
+  const [row] = await db
+    .select({ paymentId: ledger.paymentId, bookingId: ledger.bookingId })
+    .from(ledger)
+    .where(eq(ledger.id, id));
+  if (row?.paymentId) {
+    await db.delete(payments).where(eq(payments.id, row.paymentId));
+    if (row.bookingId) revalidatePath(`/bookings/${row.bookingId}`);
+    revalidatePath("/bookings");
+  } else {
+    await db.delete(ledger).where(eq(ledger.id, id));
+  }
   revalidatePath("/register");
   revalidatePath("/");
 }
@@ -960,6 +979,70 @@ export async function deleteOperationalExpense(id: number) {
   revalidatePath("/finance");
 }
 
+// ---------- partners (profit split) ----------
+
+export async function createPartner(input: { name: string; sharePct: number }) {
+  const venueId = await getActiveVenueId();
+  if (!venueId || !input.name.trim()) return;
+  await db.insert(partners).values({
+    venueId,
+    name: input.name.trim(),
+    sharePct: Math.min(Math.max(input.sharePct || 0, 0), 100),
+  });
+  revalidatePath("/finance");
+  revalidatePath("/register");
+}
+
+export async function updatePartner(
+  id: number,
+  input: { name?: string; sharePct?: number; active?: boolean },
+) {
+  await db
+    .update(partners)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.sharePct !== undefined
+        ? { sharePct: Math.min(Math.max(input.sharePct, 0), 100) }
+        : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+    })
+    .where(eq(partners.id, id));
+  revalidatePath("/finance");
+  revalidatePath("/register");
+}
+
+export async function deletePartner(id: number) {
+  await db.delete(partners).where(eq(partners.id, id));
+  revalidatePath("/finance");
+  revalidatePath("/register");
+}
+
+export async function addPartnerDraw(input: {
+  partnerId: number;
+  drawDate: string;
+  amount: number;
+  note?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
+  if (!input.drawDate) return { error: "თარიღი აუცილებელია" };
+  await db.insert(partnerDraws).values({
+    venueId,
+    partnerId: input.partnerId,
+    drawDate: input.drawDate,
+    amount: input.amount,
+    note: input.note?.trim() || null,
+  });
+  revalidatePath("/finance");
+  return { ok: true };
+}
+
+export async function deletePartnerDraw(id: number) {
+  await db.delete(partnerDraws).where(eq(partnerDraws.id, id));
+  revalidatePath("/finance");
+}
+
 // ---------- inventory ----------
 
 export async function createInventoryItem(input: {
@@ -1213,9 +1296,11 @@ export async function deleteBooking(bookingId: number) {
 // ---------- booking finances (payments + event ledger) ----------
 
 export async function deletePayment(paymentId: number, bookingId: number) {
+  // The register mirror row cascades away with the payment.
   await db.delete(payments).where(eq(payments.id, paymentId));
   revalidatePath("/bookings");
   revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/register");
   revalidatePath("/");
 }
 
@@ -1482,14 +1567,37 @@ export async function addPayment(
   method: string,
 ) {
   if (!amount || amount <= 0) return { error: "თანხა აუცილებელია" };
-  await db.insert(payments).values({
+  const [booking] = await db
+    .select({ venueId: bookings.venueId })
+    .from(bookings)
+    .where(eq(bookings.id, bookingId));
+  if (!booking) return { error: "ჯავშანი ვერ მოიძებნა" };
+
+  const [payment] = await db
+    .insert(payments)
+    .values({
+      bookingId,
+      amount,
+      paidOn,
+      method: method as typeof payments.$inferInsert.method,
+    })
+    .returning({ id: payments.id });
+
+  // Mirror into the day register — one entry, both places stay in sync.
+  await db.insert(ledger).values({
+    venueId: booking.venueId,
+    entryDate: paidOn,
+    type: "income",
+    category: "ჯავშნის გადახდა",
     bookingId,
+    paymentId: payment.id,
     amount,
-    paidOn,
-    method: method as typeof payments.$inferInsert.method,
+    qty: 1,
   });
+
   revalidatePath("/bookings");
   revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/register");
   revalidatePath("/");
   return { ok: true };
 }
