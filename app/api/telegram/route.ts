@@ -3,6 +3,13 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { settings, telegramRecipients, venues } from "@/db/schema";
 import { sendTelegram, upcomingEventsMessage } from "@/lib/reminders";
+import {
+  botAddExpense,
+  botAddIncome,
+  botAddPayment,
+  parseAmountFirst,
+  parseAmountLast,
+} from "@/lib/bot-commands";
 import { todayISO } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -10,9 +17,14 @@ export const dynamic = "force-dynamic";
 const HELP = [
   "🤖 <b>AvenueOS ბოტი</b>",
   "",
-  "/bookings (ან /ჯავშნები) — მომავალი ჯავშნების სრული სია",
+  "<b>ნახვა</b>",
+  "/bookings (ან /ჯავშნები) — მომავალი ჯავშნების სია",
   "/today (ან /დღეს) — დღევანდელი ივენთები",
-  "/help — დახმარება",
+  "",
+  "<b>ფულის ჩაწერა</b>",
+  "/ხარჯი 450 ბაზარი — ხარჯი დღის რეესტრში",
+  "/შემოსავალი 300 ფოტოსესია — შემოსავალი დღის რეესტრში",
+  "/გადახდა ნათია 2000 — გადახდა ჯავშანზე",
   "",
   "ივენთამდე 2 და 1 დღით ადრე ავტომატურ შეხსენებას მიიღებ.",
 ].join("\n");
@@ -78,6 +90,37 @@ export async function POST(req: Request) {
     } else {
       await sendTelegram(venue.token, chatId, `უკვე ჩართული ხარ ✅\n\n${HELP}`);
     }
+    return NextResponse.json({ ok: true });
+  }
+
+  // Everything below writes or reveals business data — only registered staff.
+  const known = await db
+    .select({ id: telegramRecipients.id })
+    .from(telegramRecipients)
+    .where(and(eq(telegramRecipients.venueId, venue.id), eq(telegramRecipients.chatId, chatId)));
+  if (known.length === 0) {
+    await sendTelegram(venue.token, chatId, "დასაწყებად მისწერე /start");
+    return NextResponse.json({ ok: true });
+  }
+
+  const args = text.slice(cmd.length).trim();
+  const today = todayISO();
+
+  if (cmd === "/ხარჯი" || cmd === "/expense") {
+    const { amount, rest } = parseAmountFirst(args);
+    await sendTelegram(venue.token, chatId, await botAddExpense(venue.id, amount, rest, today));
+    return NextResponse.json({ ok: true });
+  }
+
+  if (cmd === "/შემოსავალი" || cmd === "/income") {
+    const { amount, rest } = parseAmountFirst(args);
+    await sendTelegram(venue.token, chatId, await botAddIncome(venue.id, amount, rest, today));
+    return NextResponse.json({ ok: true });
+  }
+
+  if (cmd === "/გადახდა" || cmd === "/payment") {
+    const { name, amount } = parseAmountLast(args);
+    await sendTelegram(venue.token, chatId, await botAddPayment(venue.id, name, amount, today));
     return NextResponse.json({ ok: true });
   }
 

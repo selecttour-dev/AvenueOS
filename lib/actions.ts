@@ -1697,6 +1697,9 @@ export async function setupTelegramBot() {
       commands: [
         { command: "bookings", description: "მომავალი ჯავშნების სია" },
         { command: "today", description: "დღევანდელი ივენთები" },
+        { command: "expense", description: "ხარჯი — მაგ: /expense 450 ბაზარი" },
+        { command: "income", description: "შემოსავალი — მაგ: /income 300 ფოტოსესია" },
+        { command: "payment", description: "გადახდა — მაგ: /payment ნათია 2000" },
         { command: "help", description: "დახმარება" },
       ],
     }),
