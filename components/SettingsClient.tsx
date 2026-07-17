@@ -13,7 +13,6 @@ import {
   Trash2,
 } from "lucide-react";
 import {
-  addTelegramRecipients,
   connectTelegram,
   disconnectTelegram,
   duplicateVenueData,
@@ -21,6 +20,7 @@ import {
   runSheetSync,
   saveSheetId,
   sendTestReminder,
+  setupTelegramBot,
   updateVenue,
 } from "@/lib/actions";
 import { PageHeader, Section } from "@/components/ui";
@@ -81,14 +81,6 @@ function TelegramSection({ status }: { status: TelegramStatus }) {
       } else setMsg({ ok: false, text: res?.error ?? "ვერ დაუკავშირდა" });
     });
 
-  const addMore = () =>
-    startTransition(async () => {
-      setMsg(null);
-      const res = await addTelegramRecipients();
-      if (res?.ok)
-        setMsg({ ok: true, text: `დაემატა: ${(res.added ?? []).join(", ")}` });
-      else setMsg({ ok: false, text: res?.error ?? "ვერ დაემატა" });
-    });
 
   return (
     <Section
@@ -132,15 +124,33 @@ function TelegramSection({ status }: { status: TelegramStatus }) {
             className="mb-3 rounded-xl px-4 py-3 text-xs leading-relaxed"
             style={{ background: "var(--surface-2)", color: "var(--text-3)" }}
           >
-            👥 <b>ახალი თანამშრომლის დამატება:</b> მან Telegram-ში იგივე ბოტს{" "}
-            <b>@AvenueReminder_BOT</b> მისწეროს <code>/start</code>, მერე დააჭირე
-            „თანამშრომლის დამატებას“.
+            👥 <b>ახალი თანამშრომლის დამატება:</b> მან Telegram-ში ბოტს მისწეროს{" "}
+            <code>/start</code> — <b>ავტომატურად დაემატება</b> სიაში.
+            <br />
+            💬 <b>ბრძანებები:</b> <code>/ჯავშნები</code> — სრული სია, <code>/დღეს</code> —
+            დღევანდელი ივენთები.
+            <br />
+            ⚙️ ჯერ ერთხელ დააჭირე „ბოტის ჩართვას“ (მხოლოდ გამოქვეყნებულ საიტზე მუშაობს).
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button className="btn btn-primary" disabled={pending} onClick={addMore}>
+            <button
+              className="btn btn-primary"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  setMsg(null);
+                  const r = await setupTelegramBot();
+                  setMsg(
+                    r?.ok
+                      ? { ok: true, text: "ბოტი ჩაირთო ✓ — ახლა /ჯავშნები მუშაობს და /start ავტომატურად ამატებს." }
+                      : { ok: false, text: r?.error ?? "ვერ ჩაირთო" },
+                  );
+                })
+              }
+            >
               {pending ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-              თანამშრომლის დამატება
+              ბოტის ჩართვა (ბრძანებები)
             </button>
             <button
               className="btn btn-ghost"

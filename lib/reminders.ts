@@ -1,9 +1,9 @@
 // Event reminders via Telegram — pings the owner 2 and 1 days before an event
 // with the client's requirements. Channel-agnostic core + Telegram delivery.
 
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { db } from "./db";
-import { bookings, clients, settings, telegramRecipients } from "@/db/schema";
+import { bookings, clients, payments, settings, telegramRecipients } from "@/db/schema";
 
 const MONTHS_KA = [
   "იანვარი", "თებერვალი", "მარტი", "აპრილი", "მაისი", "ივნისი",
@@ -97,28 +97,135 @@ type ReminderRow = {
   id: number;
   title: string;
   eventDate: string;
+  eventType: string;
+  startTime: string | null;
   guestCount: number;
   status: string;
+  pricePerGuest: number;
+  extraCharges: number;
+  discount: number;
   requirements: string | null;
+  notes: string | null;
   reminderSentAt: string | null;
+  clientName: string | null;
   clientPhone: string | null;
+  paidTotal: number;
 };
+
+const STATUS_KA: Record<string, string> = {
+  inquiry: "მოთხოვნა",
+  tentative: "წინასწარი",
+  confirmed: "დადასტურებული",
+  completed: "ჩატარებული",
+  cancelled: "გაუქმებული",
+};
+
+const EVENT_TYPE_KA: Record<string, string> = {
+  wedding: "ქორწილი",
+  birthday: "დაბადების დღე",
+  corporate: "კორპორატივი",
+  anniversary: "იუბილე",
+  memorial: "ქელეხი",
+  other: "სხვა",
+};
+
+function gelKa(n: number): string {
+  const r = Math.round(n * 100) / 100;
+  const [i, d] = String(r).split(".");
+  const withSep = i.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${withSep}${d ? "." + d : ""} ₾`;
+}
+
+/** One event block — used by reminders and the /ჯავშნები list. */
+export function formatEventBlock(b: ReminderRow, opts?: { compact?: boolean }): string {
+  const total = b.guestCount * b.pricePerGuest + b.extraCharges - b.discount;
+  const balance = total - b.paidTotal;
+  const lines = [
+    `🎉 <b>${esc(b.title)}</b>`,
+    `📅 ${fmtLong(b.eventDate)}${b.startTime ? ` · ${esc(b.startTime)}` : ""}`,
+    `👥 ${b.guestCount || "?"} სტუმარი · ${EVENT_TYPE_KA[b.eventType] ?? b.eventType}`,
+    `🏷 ${STATUS_KA[b.status] ?? b.status}`,
+  ];
+  if (b.clientName && b.clientName !== b.title) lines.push(`👤 ${esc(b.clientName)}`);
+  if (b.clientPhone) lines.push(`📞 ${esc(b.clientPhone)}`);
+  if (total > 0) {
+    lines.push(
+      `💰 ${gelKa(total)} · გადახდილი ${gelKa(b.paidTotal)}${balance > 0 ? ` · <b>დარჩა ${gelKa(balance)}</b>` : " · ✅ სრულად"}`,
+    );
+  } else if (b.paidTotal > 0) {
+    lines.push(`💰 გადახდილი ${gelKa(b.paidTotal)} (ჯამური ფასი არ არის ჩაწერილი)`);
+  } else {
+    lines.push(`💰 ფასი არ არის ჩაწერილი`);
+  }
+  if (!opts?.compact) {
+    if (b.requirements?.trim()) {
+      lines.push(``, `📝 <b>დამკვეთის სურვილი:</b>`, esc(b.requirements.trim()));
+    }
+    if (b.notes?.trim()) lines.push(`🗒 ${esc(b.notes.trim())}`);
+  }
+  return lines.join("\n");
+}
 
 function formatReminder(b: ReminderRow, daysUntil: number, venueName: string): string {
   const when = daysUntil === 1 ? "<b>ხვალ</b>" : "<b>ზეგ</b>";
-  const lines = [
-    `🔔 შეხსენება — ${when} ივენთია`,
-    ``,
+  return [
+    `🔔 შეხსენება — ${when} გაქვს ჯავშანი`,
     `🏛 ${esc(venueName)}`,
-    `🎉 <b>${esc(b.title)}</b>`,
-    `📅 ${fmtLong(b.eventDate)}`,
-    `👥 ${b.guestCount || "?"} სტუმარი`,
-  ];
-  if (b.clientPhone) lines.push(`📞 ${esc(b.clientPhone)}`);
-  if (b.requirements?.trim()) {
-    lines.push(``, `📝 <b>დამკვეთის სურვილი:</b>`, esc(b.requirements.trim()));
-  }
-  return lines.join("\n");
+    ``,
+    formatEventBlock(b),
+  ].join("\n");
+}
+
+const EVENT_FIELDS = {
+  id: bookings.id,
+  title: bookings.title,
+  eventDate: bookings.eventDate,
+  eventType: bookings.eventType,
+  startTime: bookings.startTime,
+  guestCount: bookings.guestCount,
+  status: bookings.status,
+  pricePerGuest: bookings.pricePerGuest,
+  extraCharges: bookings.extraCharges,
+  discount: bookings.discount,
+  requirements: bookings.requirements,
+  notes: bookings.notes,
+  reminderSentAt: bookings.reminderSentAt,
+  clientName: clients.name,
+  clientPhone: clients.phone,
+  paidTotal: sql<number>`coalesce((select sum(${payments.amount}) from ${payments} where ${payments.bookingId} = ${bookings.id}), 0)::float`,
+};
+
+/** Upcoming events for a venue — powers the /ჯავშნები and /დღეს bot commands. */
+export async function upcomingEventsMessage(
+  venueId: number,
+  venueName: string,
+  fromDate: string,
+  limit = 12,
+  onlyDate?: string,
+): Promise<string> {
+  const rows = (await db
+    .select(EVENT_FIELDS)
+    .from(bookings)
+    .leftJoin(clients, eq(bookings.clientId, clients.id))
+    .where(
+      and(
+        eq(bookings.venueId, venueId),
+        onlyDate ? eq(bookings.eventDate, onlyDate) : gte(bookings.eventDate, fromDate),
+        ne(bookings.status, "cancelled"),
+      ),
+    )
+    .orderBy(asc(bookings.eventDate))
+    .limit(limit)) as ReminderRow[];
+
+  if (rows.length === 0)
+    return `🏛 <b>${esc(venueName)}</b>\n\n${onlyDate ? "დღეს ივენთი არ არის." : "მომავალი ჯავშანი არ არის."}`;
+
+  const blocks = rows.map((b) => formatEventBlock(b));
+  return [
+    `📋 <b>${onlyDate ? "დღევანდელი ივენთები" : "მომავალი ჯავშნები"} — ${esc(venueName)}</b> (${rows.length})`,
+    ``,
+    blocks.join("\n\n———\n\n"),
+  ].join("\n");
 }
 
 async function getSetting(venueId: number, key: string): Promise<string | null> {
@@ -146,16 +253,7 @@ export async function runReminders(
   const d2 = addDays(todayStr, 2);
 
   const rows = (await db
-    .select({
-      id: bookings.id,
-      title: bookings.title,
-      eventDate: bookings.eventDate,
-      guestCount: bookings.guestCount,
-      status: bookings.status,
-      requirements: bookings.requirements,
-      reminderSentAt: bookings.reminderSentAt,
-      clientPhone: clients.phone,
-    })
+    .select(EVENT_FIELDS)
     .from(bookings)
     .leftJoin(clients, eq(bookings.clientId, clients.id))
     .where(

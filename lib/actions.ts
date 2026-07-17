@@ -1,9 +1,10 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { randomUUID } from "node:crypto";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { db } from "./db";
 import { VENUE_COOKIE, getActiveVenueId } from "./venue";
 import {
@@ -1308,6 +1309,15 @@ export async function updateBooking(
     })
     .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
 
+  // Payment mirrors live on the event's date — move them if the date changed.
+  if (input.eventDate !== undefined) {
+    await db
+      .update(ledger)
+      .set({ entryDate: input.eventDate })
+      .where(and(eq(ledger.bookingId, bookingId), isNotNull(ledger.paymentId)));
+    revalidatePath("/register");
+  }
+
   revalidatePath("/bookings");
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/");
@@ -1640,6 +1650,62 @@ export async function addTelegramRecipients() {
     : { ok: false as const, error: "ახალი თანამშრომელი არ დამატებულა (უკვე დამატებული არიან)." };
 }
 
+/** Register the webhook + command menu so /ჯავშნები and self-/start work.
+ *  Must be run from the deployed (public) URL — Telegram can't reach localhost. */
+export async function setupTelegramBot() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { ok: false as const, error: "ობიექტი არ არის არჩეული" };
+  const token = await getBotToken(venueId);
+  if (!token) return { ok: false as const, error: "ჯერ ჩაწერე ბოტის token" };
+
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  if (!host || host.startsWith("localhost") || host.startsWith("127.")) {
+    return {
+      ok: false as const,
+      error: "ბოტის ბრძანებები მხოლოდ გამოქვეყნებულ საიტზე ირთვება (avenueos.onrender.com), ლოკალურად არა.",
+    };
+  }
+  const url = `${proto}://${host}/api/telegram`;
+
+  // a random secret Telegram will echo back on every webhook call
+  const secret = randomUUID().replace(/-/g, "");
+  await upsertSetting(venueId, "telegramWebhookSecret", secret);
+
+  const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url,
+      secret_token: secret,
+      allowed_updates: ["message"],
+      drop_pending_updates: false,
+    }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.ok) {
+    return { ok: false as const, error: `Telegram: ${data?.description ?? "setWebhook ვერ მოხერხდა"}` };
+  }
+
+  await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      // Telegram only accepts [a-z0-9_] as command names, so the menu is in
+      // English; the webhook still answers the Georgian aliases if typed.
+      commands: [
+        { command: "bookings", description: "მომავალი ჯავშნების სია" },
+        { command: "today", description: "დღევანდელი ივენთები" },
+        { command: "help", description: "დახმარება" },
+      ],
+    }),
+  });
+
+  revalidatePath("/settings");
+  return { ok: true as const, url };
+}
+
 export async function removeTelegramRecipient(id: number) {
   const venueId = await getActiveVenueId();
   if (!venueId) return;
@@ -1759,7 +1825,7 @@ export async function addPayment(
 ) {
   if (!amount || amount <= 0) return { error: "თანხა აუცილებელია" };
   const [booking] = await db
-    .select({ venueId: bookings.venueId })
+    .select({ venueId: bookings.venueId, eventDate: bookings.eventDate })
     .from(bookings)
     .where(eq(bookings.id, bookingId));
   if (!booking) return { error: "ჯავშანი ვერ მოიძებნა" };
@@ -1774,10 +1840,12 @@ export async function addPayment(
     })
     .returning({ id: payments.id });
 
-  // Mirror into the day register — one entry, both places stay in sync.
+  // Mirror into the day register on the EVENT's date, not the day the money was
+  // taken: an advance for a future event belongs to that event's day, so each
+  // day's register (and its profit split) reflects that day's event only.
   await db.insert(ledger).values({
     venueId: booking.venueId,
-    entryDate: paidOn,
+    entryDate: booking.eventDate,
     type: "income",
     category: "ჯავშნის გადახდა",
     bookingId,
