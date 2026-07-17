@@ -33,6 +33,11 @@ import {
   suppliers,
   venues,
 } from "@/db/schema";
+import {
+  extractSheetId,
+  syncBookingsFromSheet,
+  type SyncResult,
+} from "./sheet-sync";
 
 // ---------- venues ----------
 
@@ -1537,6 +1542,47 @@ export async function saveTargetFoodCostPct(pct: number) {
       set: { value: String(clamped) },
     });
   revalidatePath("/calc");
+}
+
+// ---------- Google Sheets sync ----------
+
+export async function getSheetId(): Promise<string> {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return "";
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(and(eq(settings.venueId, venueId), eq(settings.key, "sheetId")));
+  return row?.value ?? "";
+}
+
+export async function saveSheetId(input: string) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  const id = extractSheetId(input.trim());
+  await db
+    .insert(settings)
+    .values({ venueId, key: "sheetId", value: id })
+    .onConflictDoUpdate({ target: [settings.venueId, settings.key], set: { value: id } });
+  revalidatePath("/settings");
+  return { ok: true, id };
+}
+
+export async function runSheetSync(overrideInput?: string): Promise<SyncResult & { error?: string }> {
+  const venueId = await getActiveVenueId();
+  if (!venueId)
+    return { ok: false, error: "ობიექტი არ არის არჩეული", added: 0, updated: 0, skipped: 0, tabsRead: [], rows: 0 };
+  const id = overrideInput?.trim() || (await getSheetId());
+  if (!id)
+    return { ok: false, error: "ჯერ ჩაწერე Google Sheet-ის ბმული", added: 0, updated: 0, skipped: 0, tabsRead: [], rows: 0 };
+  const res = await syncBookingsFromSheet(venueId, id);
+  if (res.ok) {
+    revalidatePath("/bookings");
+    revalidatePath("/receivables");
+    revalidatePath("/analytics");
+    revalidatePath("/");
+  }
+  return res;
 }
 
 export async function saveIncomeTaxPct(pct: number) {

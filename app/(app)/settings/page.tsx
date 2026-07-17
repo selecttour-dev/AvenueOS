@@ -1,10 +1,15 @@
 import { getActiveVenue, getVenues } from "@/lib/venue";
+import { getSheetId } from "@/lib/actions";
 import SettingsClient from "@/components/SettingsClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [venue, venues] = await Promise.all([getActiveVenue(), getVenues()]);
+  const [venue, venues, sheetId] = await Promise.all([
+    getActiveVenue(),
+    getVenues(),
+    getSheetId(),
+  ]);
   if (!venue) return null;
   return (
     <SettingsClient
@@ -17,6 +22,7 @@ export default async function SettingsPage() {
       otherVenues={venues
         .filter((v) => v.id !== venue.id)
         .map((v) => ({ id: v.id, name: v.name }))}
+      sheetId={sheetId}
     />
   );
 }

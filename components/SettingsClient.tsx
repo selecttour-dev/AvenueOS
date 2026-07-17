@@ -1,8 +1,20 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Building2, Check, Copy, Loader2 } from "lucide-react";
-import { duplicateVenueData, updateVenue } from "@/lib/actions";
+import {
+  Building2,
+  Check,
+  Copy,
+  Loader2,
+  RefreshCw,
+  Sheet as SheetIcon,
+} from "lucide-react";
+import {
+  duplicateVenueData,
+  runSheetSync,
+  saveSheetId,
+  updateVenue,
+} from "@/lib/actions";
 import { PageHeader, Section } from "@/components/ui";
 
 type Venue = {
@@ -15,9 +27,11 @@ type Venue = {
 export default function SettingsClient({
   venue,
   otherVenues,
+  sheetId,
 }: {
   venue: Venue;
   otherVenues: { id: number; name: string }[];
+  sheetId: string;
 }) {
   return (
     <>
@@ -25,11 +39,110 @@ export default function SettingsClient({
         title="პარამეტრები"
         subtitle={`ობიექტი: ${venue.name}`}
       />
-      <div className="grid gap-5 lg:grid-cols-2">
+      <SheetSyncSection initialSheetId={sheetId} />
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
         <VenueInfoSection venue={venue} />
         <DuplicateSection venue={venue} otherVenues={otherVenues} />
       </div>
     </>
+  );
+}
+
+type SyncResult = {
+  ok: boolean;
+  error?: string;
+  added: number;
+  updated: number;
+  skipped: number;
+  tabsRead: string[];
+  rows: number;
+};
+
+function SheetSyncSection({ initialSheetId }: { initialSheetId: string }) {
+  const [pending, startTransition] = useTransition();
+  const [value, setValue] = useState(initialSheetId);
+  const [saved, setSaved] = useState(false);
+  const [result, setResult] = useState<SyncResult | null>(null);
+
+  const sync = () =>
+    startTransition(async () => {
+      setResult(null);
+      await saveSheetId(value);
+      const res = await runSheetSync(value);
+      setResult(res);
+      setSaved(true);
+    });
+
+  return (
+    <Section
+      title="Google Sheets სინქრონი"
+      action={<SheetIcon size={18} style={{ color: "var(--text-3)" }} />}
+    >
+      <p className="mb-3 text-sm leading-relaxed" style={{ color: "var(--text-2)" }}>
+        ჩასვი შენი Google Sheet-ის ბმული. აპი ავტომატურად წაიკითხავs თვის ტაბებს
+        (მაისი, ივნისი…) და დაამატებს/განაახლებს ჯავშნებს. არსებულ ჯავშანს არ
+        შლის და აპში ჩაწერილ ფასს არ გადააწერს.
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[240px] flex-1">
+          <label className="label">Google Sheet-ის ბმული</label>
+          <input
+            className="input"
+            placeholder="https://docs.google.com/spreadsheets/d/..."
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setSaved(false);
+            }}
+          />
+        </div>
+        <button
+          className="btn btn-primary"
+          disabled={pending || !value.trim()}
+          onClick={sync}
+        >
+          {pending ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+          ახლავე დასინქრონება
+        </button>
+      </div>
+
+      {result && (
+        <div
+          className="mt-4 rounded-xl px-4 py-3 text-sm"
+          style={
+            result.ok
+              ? { background: "var(--green-soft)", color: "var(--text)" }
+              : { background: "var(--red-soft)", color: "var(--red)" }
+          }
+        >
+          {result.ok ? (
+            <>
+              <div className="font-bold" style={{ color: "var(--green)" }}>
+                ✓ სინქრონი დასრულდა
+              </div>
+              <div className="mt-1" style={{ color: "var(--text-2)" }}>
+                დაემატა <b>{result.added}</b> · განახლდა <b>{result.updated}</b> ·
+                გამოტოვდა <b>{result.skipped}</b>
+                {result.tabsRead.length > 0 && (
+                  <> · ტაბები: {result.tabsRead.join(", ")}</>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="font-semibold">{result.error}</div>
+          )}
+        </div>
+      )}
+
+      <div
+        className="mt-4 rounded-xl px-4 py-3 text-xs leading-relaxed"
+        style={{ background: "var(--surface-2)", color: "var(--text-3)" }}
+      >
+        💡 ცხრილი უნდა იყოს გაზიარებული <b>„ნებისმიერს ბმულით — ნახვა“</b>.
+        დღიური რეესტრები და ხარჯების ტაბები არ ისინქრონდება — ისინი აპში იწარმოება.
+        {saved && <> ბმული შენახულია.</>}
+      </div>
+    </Section>
   );
 }
 
