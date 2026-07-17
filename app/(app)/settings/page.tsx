@@ -1,14 +1,15 @@
 import { getActiveVenue, getVenues } from "@/lib/venue";
-import { getSheetId } from "@/lib/actions";
+import { getSheetId, getTelegramStatus } from "@/lib/actions";
 import SettingsClient from "@/components/SettingsClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [venue, venues, sheetId] = await Promise.all([
+  const [venue, venues, sheetId, telegram] = await Promise.all([
     getActiveVenue(),
     getVenues(),
     getSheetId(),
+    getTelegramStatus(),
   ]);
   if (!venue) return null;
   return (
@@ -23,6 +24,7 @@ export default async function SettingsPage() {
         .filter((v) => v.id !== venue.id)
         .map((v) => ({ id: v.id, name: v.name }))}
       sheetId={sheetId}
+      telegram={telegram}
     />
   );
 }

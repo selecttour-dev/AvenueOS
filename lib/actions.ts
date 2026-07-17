@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { db } from "./db";
 import { VENUE_COOKIE, getActiveVenueId } from "./venue";
 import {
@@ -38,6 +38,7 @@ import {
   syncBookingsFromSheet,
   type SyncResult,
 } from "./sheet-sync";
+import { resolveTelegramChatId, sendTelegram } from "./reminders";
 
 // ---------- venues ----------
 
@@ -1558,6 +1559,82 @@ export async function saveTargetFoodCostPct(pct: number) {
       set: { value: String(clamped) },
     });
   revalidatePath("/calc");
+}
+
+// ---------- Telegram reminders ----------
+
+export async function getTelegramStatus(): Promise<{
+  connected: boolean;
+  hasToken: boolean;
+  chatId: string;
+}> {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { connected: false, hasToken: false, chatId: "" };
+  const rows = await db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(and(eq(settings.venueId, venueId)));
+  const get = (k: string) => rows.find((r) => r.key === k)?.value ?? "";
+  const chatId = get("telegramChatId");
+  const hasToken = !!(process.env.TELEGRAM_BOT_TOKEN || get("telegramBotToken"));
+  return { connected: hasToken && !!chatId, hasToken, chatId };
+}
+
+async function upsertSetting(venueId: number, key: string, value: string) {
+  await db
+    .insert(settings)
+    .values({ venueId, key, value })
+    .onConflictDoUpdate({ target: [settings.venueId, settings.key], set: { value } });
+}
+
+/** Save the bot token, find the chat id from the user's /start, send a test. */
+export async function connectTelegram(token: string) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  const t = token.trim();
+  if (!t.includes(":")) return { error: "ბოტის token არასწორია (BotFather-იდან დააკოპირე)" };
+
+  await upsertSetting(venueId, "telegramBotToken", t);
+  const chatId = await resolveTelegramChatId(t);
+  if (!chatId) {
+    return {
+      error:
+        "ჯერ Telegram-ში მისწერე ბოტს /start (ან რამე შეტყობინება), მერე დააჭირე „დაკავშირებას“.",
+    };
+  }
+  await upsertSetting(venueId, "telegramChatId", chatId);
+  const [v] = await db.select({ name: venues.name }).from(venues).where(eq(venues.id, venueId));
+  await sendTelegram(t, chatId, `✅ <b>${v?.name ?? "AvenueOS"}</b> დაკავშირდა — შეხსენებები ჩართულია.`);
+  revalidatePath("/settings");
+  return { ok: true, chatId };
+}
+
+export async function sendTestReminder() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  const rows = await db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(eq(settings.venueId, venueId));
+  const get = (k: string) => rows.find((r) => r.key === k)?.value ?? "";
+  const token = process.env.TELEGRAM_BOT_TOKEN || get("telegramBotToken");
+  const chatId = get("telegramChatId");
+  if (!token || !chatId) return { error: "ჯერ დააკავშირე Telegram" };
+  const ok = await sendTelegram(
+    token,
+    chatId,
+    "🔔 <b>სატესტო შეხსენება</b>\nასე მოგივა ივენთის შეხსენება 2 და 1 დღით ადრე.",
+  );
+  return ok ? { ok: true } : { error: "გაგზავნა ვერ მოხერხდა — შეამოწმე token/chat" };
+}
+
+export async function disconnectTelegram() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .delete(settings)
+    .where(and(eq(settings.venueId, venueId), inArray(settings.key, ["telegramBotToken", "telegramChatId"])));
+  revalidatePath("/settings");
 }
 
 // ---------- Google Sheets sync ----------

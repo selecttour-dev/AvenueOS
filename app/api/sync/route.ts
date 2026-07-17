@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { settings } from "@/db/schema";
+import { settings, venues } from "@/db/schema";
 import { syncBookingsFromSheet } from "@/lib/sheet-sync";
+import { runReminders } from "@/lib/reminders";
+import { todayISO } from "@/lib/format";
 import { authToken } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-// Scheduled sync: run bookings sync for every venue that has a saved sheetId.
-// Protected by a token (?token= or Authorization: Bearer). Point a Render Cron
-// Job at this URL hourly.
+// Scheduled job: (1) sync bookings from each venue's Google Sheet, (2) send any
+// due 2-day / 1-day event reminders. Protected by a token (?token= or Bearer).
+// Point a Render Cron Job at this URL hourly.
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const token =
@@ -21,19 +23,31 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const rows = await db
+  const today = todayISO();
+  const allVenues = await db.select({ id: venues.id, name: venues.name }).from(venues);
+  const sheetRows = await db
     .select({ venueId: settings.venueId, value: settings.value })
     .from(settings)
     .where(eq(settings.key, "sheetId"));
+  const sheetByVenue = new Map(sheetRows.map((r) => [r.venueId, r.value]));
 
   const results: Record<string, unknown> = {};
-  for (const r of rows) {
-    if (!r.value) continue;
-    try {
-      results[r.venueId] = await syncBookingsFromSheet(r.venueId, r.value);
-    } catch (e) {
-      results[r.venueId] = { ok: false, error: String(e) };
+  for (const v of allVenues) {
+    const out: Record<string, unknown> = {};
+    const sheetId = sheetByVenue.get(v.id);
+    if (sheetId) {
+      try {
+        out.sync = await syncBookingsFromSheet(v.id, sheetId);
+      } catch (e) {
+        out.sync = { ok: false, error: String(e) };
+      }
     }
+    try {
+      out.reminders = await runReminders(v.id, v.name, today);
+    } catch (e) {
+      out.reminders = { ok: false, error: String(e) };
+    }
+    results[v.id] = out;
   }
 
   return NextResponse.json({ ranAt: new Date().toISOString(), venues: results });

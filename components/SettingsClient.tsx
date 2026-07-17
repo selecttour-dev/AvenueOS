@@ -7,12 +7,16 @@ import {
   Copy,
   Loader2,
   RefreshCw,
+  Send,
   Sheet as SheetIcon,
 } from "lucide-react";
 import {
+  connectTelegram,
+  disconnectTelegram,
   duplicateVenueData,
   runSheetSync,
   saveSheetId,
+  sendTestReminder,
   updateVenue,
 } from "@/lib/actions";
 import { PageHeader, Section } from "@/components/ui";
@@ -24,14 +28,18 @@ type Venue = {
   capacity: number | null;
 };
 
+type TelegramStatus = { connected: boolean; hasToken: boolean; chatId: string };
+
 export default function SettingsClient({
   venue,
   otherVenues,
   sheetId,
+  telegram,
 }: {
   venue: Venue;
   otherVenues: { id: number; name: string }[];
   sheetId: string;
+  telegram: TelegramStatus;
 }) {
   return (
     <>
@@ -39,12 +47,110 @@ export default function SettingsClient({
         title="პარამეტრები"
         subtitle={`ობიექტი: ${venue.name}`}
       />
-      <SheetSyncSection initialSheetId={sheetId} />
+      <div className="grid gap-5 lg:grid-cols-2">
+        <TelegramSection status={telegram} />
+        <SheetSyncSection initialSheetId={sheetId} />
+      </div>
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         <VenueInfoSection venue={venue} />
         <DuplicateSection venue={venue} otherVenues={otherVenues} />
       </div>
     </>
+  );
+}
+
+function TelegramSection({ status }: { status: TelegramStatus }) {
+  const [pending, startTransition] = useTransition();
+  const [token, setToken] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const connect = () =>
+    startTransition(async () => {
+      setMsg(null);
+      const res = await connectTelegram(token);
+      if (res?.ok) setMsg({ ok: true, text: "დაკავშირდა ✓ — სატესტო შეტყობინება გაიგზავნა Telegram-ში." });
+      else setMsg({ ok: false, text: res?.error ?? "ვერ დაუკავშირდა" });
+    });
+
+  return (
+    <Section
+      title="Telegram შეხსენებები"
+      action={<Send size={18} style={{ color: "var(--text-3)" }} />}
+    >
+      {status.connected ? (
+        <>
+          <div
+            className="mb-3 flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
+            style={{ background: "var(--green-soft)", color: "var(--green)" }}
+          >
+            <Check size={16} /> დაკავშირებულია · chat {status.chatId}
+          </div>
+          <p className="mb-3 text-sm" style={{ color: "var(--text-2)" }}>
+            ივენთამდე <b>2 და 1 დღით ადრე</b> მიიღებ შეხსენებას დამკვეთის სურვილებით.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="btn btn-ghost"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const r = await sendTestReminder();
+                  setMsg(r?.ok ? { ok: true, text: "სატესტო შეტყობინება გაიგზავნა ✓" } : { ok: false, text: r?.error ?? "ვერ გაიგზავნა" });
+                })
+              }
+            >
+              {pending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+              სატესტო შეტყობინება
+            </button>
+            <button
+              className="btn btn-danger"
+              disabled={pending}
+              onClick={() => {
+                if (confirm("გავთიშო Telegram?")) startTransition(() => disconnectTelegram());
+              }}
+            >
+              გათიშვა
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <ol className="mb-3 ml-4 list-decimal text-sm leading-relaxed" style={{ color: "var(--text-2)" }}>
+            <li>Telegram-ში მოძებნე <b>@BotFather</b> → <code>/newbot</code> → მიიღებ <b>token</b>-ს.</li>
+            <li>მოძებნე შენი ახალი ბოტი და მისწერე <code>/start</code>.</li>
+            <li>ჩასვი token აქ და დააჭირე „დაკავშირებას“.</li>
+          </ol>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[220px] flex-1">
+              <label className="label">ბოტის Token</label>
+              <input
+                className="input"
+                placeholder="123456789:AA..."
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+              />
+            </div>
+            <button className="btn btn-primary" disabled={pending || !token.trim()} onClick={connect}>
+              {pending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              დაკავშირება
+            </button>
+          </div>
+        </>
+      )}
+
+      {msg && (
+        <div
+          className="mt-3 rounded-xl px-4 py-2.5 text-sm font-semibold"
+          style={
+            msg.ok
+              ? { background: "var(--green-soft)", color: "var(--green)" }
+              : { background: "var(--red-soft)", color: "var(--red)" }
+          }
+        >
+          {msg.text}
+        </div>
+      )}
+    </Section>
   );
 }
 
