@@ -31,6 +31,7 @@ import {
   settings,
   staff,
   suppliers,
+  telegramRecipients,
   venues,
 } from "@/db/schema";
 import {
@@ -38,7 +39,7 @@ import {
   syncBookingsFromSheet,
   type SyncResult,
 } from "./sheet-sync";
-import { resolveTelegramChatId, sendTelegram } from "./reminders";
+import { getRecipients, resolveTelegramChats, sendTelegram } from "./reminders";
 
 // ---------- venues ----------
 
@@ -1563,21 +1564,21 @@ export async function saveTargetFoodCostPct(pct: number) {
 
 // ---------- Telegram reminders ----------
 
+export type TelegramRecipient = { id: number; name: string | null; chatId: string };
+
 export async function getTelegramStatus(): Promise<{
-  connected: boolean;
   hasToken: boolean;
-  chatId: string;
+  recipients: TelegramRecipient[];
 }> {
   const venueId = await getActiveVenueId();
-  if (!venueId) return { connected: false, hasToken: false, chatId: "" };
-  const rows = await db
-    .select({ key: settings.key, value: settings.value })
+  if (!venueId) return { hasToken: false, recipients: [] };
+  const [tok] = await db
+    .select({ value: settings.value })
     .from(settings)
-    .where(and(eq(settings.venueId, venueId)));
-  const get = (k: string) => rows.find((r) => r.key === k)?.value ?? "";
-  const chatId = get("telegramChatId");
-  const hasToken = !!(process.env.TELEGRAM_BOT_TOKEN || get("telegramBotToken"));
-  return { connected: hasToken && !!chatId, hasToken, chatId };
+    .where(and(eq(settings.venueId, venueId), eq(settings.key, "telegramBotToken")));
+  const hasToken = !!(process.env.TELEGRAM_BOT_TOKEN || tok?.value);
+  const recipients = await getRecipients(venueId);
+  return { hasToken, recipients };
 }
 
 async function upsertSetting(venueId: number, key: string, value: string) {
@@ -1587,50 +1588,85 @@ async function upsertSetting(venueId: number, key: string, value: string) {
     .onConflictDoUpdate({ target: [settings.venueId, settings.key], set: { value } });
 }
 
-/** Save the bot token, find the chat id from the user's /start, send a test. */
+async function getBotToken(venueId: number): Promise<string | null> {
+  if (process.env.TELEGRAM_BOT_TOKEN) return process.env.TELEGRAM_BOT_TOKEN;
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(and(eq(settings.venueId, venueId), eq(settings.key, "telegramBotToken")));
+  return row?.value ?? null;
+}
+
+/** Save the bot token and add the first recipient (whoever /start-ed the bot). */
 export async function connectTelegram(token: string) {
   const venueId = await getActiveVenueId();
-  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  if (!venueId) return { ok: false as const, error: "ობიექტი არ არის არჩეული" };
   const t = token.trim();
-  if (!t.includes(":")) return { error: "ბოტის token არასწორია (BotFather-იდან დააკოპირე)" };
-
+  if (!t.includes(":"))
+    return { ok: false as const, error: "ბოტის token არასწორია (BotFather-იდან დააკოპირე)" };
   await upsertSetting(venueId, "telegramBotToken", t);
-  const chatId = await resolveTelegramChatId(t);
-  if (!chatId) {
+  const res = await addTelegramRecipients();
+  revalidatePath("/settings");
+  return res;
+}
+
+/** Add every new chat that has messaged the bot as a reminder recipient. */
+export async function addTelegramRecipients() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { ok: false as const, error: "ობიექტი არ არის არჩეული" };
+  const token = await getBotToken(venueId);
+  if (!token) return { ok: false as const, error: "ჯერ ჩაწერე ბოტის token" };
+
+  const chats = await resolveTelegramChats(token);
+  if (chats.length === 0) {
     return {
-      error:
-        "ჯერ Telegram-ში მისწერე ბოტს /start (ან რამე შეტყობინება), მერე დააჭირე „დაკავშირებას“.",
+      ok: false as const,
+      error: "ვერავინ ვიპოვე — თანამშრომელმა ჯერ Telegram-ში ბოტს უნდა მისწეროს /start, მერე დააჭირე.",
     };
   }
-  await upsertSetting(venueId, "telegramChatId", chatId);
+  const existing = await getRecipients(venueId);
+  const have = new Set(existing.map((r) => r.chatId));
+  const added: string[] = [];
   const [v] = await db.select({ name: venues.name }).from(venues).where(eq(venues.id, venueId));
-  await sendTelegram(t, chatId, `✅ <b>${v?.name ?? "AvenueOS"}</b> დაკავშირდა — შეხსენებები ჩართულია.`);
+  for (const c of chats) {
+    if (have.has(c.chatId)) continue;
+    await db.insert(telegramRecipients).values({ venueId, chatId: c.chatId, name: c.name || null });
+    await sendTelegram(token, c.chatId, `✅ <b>${v?.name ?? "AvenueOS"}</b> — შეხსენებები ჩართულია${c.name ? `, ${c.name}` : ""}.`);
+    added.push(c.name || c.chatId);
+  }
   revalidatePath("/settings");
-  return { ok: true, chatId };
+  return added.length > 0
+    ? { ok: true as const, added }
+    : { ok: false as const, error: "ახალი თანამშრომელი არ დამატებულა (უკვე დამატებული არიან)." };
+}
+
+export async function removeTelegramRecipient(id: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .delete(telegramRecipients)
+    .where(and(eq(telegramRecipients.id, id), eq(telegramRecipients.venueId, venueId)));
+  revalidatePath("/settings");
 }
 
 export async function sendTestReminder() {
   const venueId = await getActiveVenueId();
   if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
-  const rows = await db
-    .select({ key: settings.key, value: settings.value })
-    .from(settings)
-    .where(eq(settings.venueId, venueId));
-  const get = (k: string) => rows.find((r) => r.key === k)?.value ?? "";
-  const token = process.env.TELEGRAM_BOT_TOKEN || get("telegramBotToken");
-  const chatId = get("telegramChatId");
-  if (!token || !chatId) return { error: "ჯერ დააკავშირე Telegram" };
-  const ok = await sendTelegram(
-    token,
-    chatId,
-    "🔔 <b>სატესტო შეხსენება</b>\nასე მოგივა ივენთის შეხსენება 2 და 1 დღით ადრე.",
-  );
-  return ok ? { ok: true } : { error: "გაგზავნა ვერ მოხერხდა — შეამოწმე token/chat" };
+  const token = await getBotToken(venueId);
+  const recipients = await getRecipients(venueId);
+  if (!token || recipients.length === 0) return { error: "ჯერ დააკავშირე Telegram" };
+  let ok = false;
+  for (const r of recipients) {
+    if (await sendTelegram(token, r.chatId, "🔔 <b>სატესტო შეხსენება</b>\nასე მოგივა ივენთის შეხსენება 2 და 1 დღით ადრე.")) ok = true;
+  }
+  return ok ? { ok: true } : { error: "გაგზავნა ვერ მოხერხდა — შეამოწმე token" };
 }
 
+/** Full disconnect: drops the token and all recipients for this venue. */
 export async function disconnectTelegram() {
   const venueId = await getActiveVenueId();
   if (!venueId) return;
+  await db.delete(telegramRecipients).where(eq(telegramRecipients.venueId, venueId));
   await db
     .delete(settings)
     .where(and(eq(settings.venueId, venueId), inArray(settings.key, ["telegramBotToken", "telegramChatId"])));

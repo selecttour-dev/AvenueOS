@@ -3,7 +3,7 @@
 
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "./db";
-import { bookings, clients, settings } from "@/db/schema";
+import { bookings, clients, settings, telegramRecipients } from "@/db/schema";
 
 const MONTHS_KA = [
   "იანვარი", "თებერვალი", "მარტი", "აპრილი", "მაისი", "ივნისი",
@@ -44,21 +44,53 @@ export async function sendTelegram(token: string, chatId: string, text: string):
   }
 }
 
-/** Find the chat id of whoever last messaged the bot (their /start). */
-export async function resolveTelegramChatId(token: string): Promise<string | null> {
+/** All distinct chats that recently messaged the bot (each employee's /start). */
+export async function resolveTelegramChats(
+  token: string,
+): Promise<{ chatId: string; name: string }[]> {
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const data = await res.json();
     const updates: any[] = data?.result ?? [];
-    for (let i = updates.length - 1; i >= 0; i--) {
-      const chat = updates[i]?.message?.chat ?? updates[i]?.my_chat_member?.chat;
-      if (chat?.id) return String(chat.id);
+    const seen = new Map<string, string>();
+    for (const u of updates) {
+      const chat = u?.message?.chat ?? u?.my_chat_member?.chat;
+      if (!chat?.id) continue;
+      const name =
+        chat.title ??
+        [chat.first_name, chat.last_name].filter(Boolean).join(" ") ??
+        chat.username ??
+        "";
+      seen.set(String(chat.id), name);
     }
-    return null;
+    return [...seen.entries()].map(([chatId, name]) => ({ chatId, name }));
   } catch {
-    return null;
+    return [];
   }
+}
+
+/** Recipients for a venue; migrates a legacy single telegramChatId setting. */
+export async function getRecipients(
+  venueId: number,
+): Promise<{ id: number; chatId: string; name: string | null }[]> {
+  const rows = await db
+    .select({ id: telegramRecipients.id, chatId: telegramRecipients.chatId, name: telegramRecipients.name })
+    .from(telegramRecipients)
+    .where(eq(telegramRecipients.venueId, venueId));
+  // migrate legacy single chat id into the table (one-time)
+  const [legacy] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(and(eq(settings.venueId, venueId), eq(settings.key, "telegramChatId")));
+  if (legacy?.value && !rows.some((r) => r.chatId === legacy.value)) {
+    const [ins] = await db
+      .insert(telegramRecipients)
+      .values({ venueId, chatId: legacy.value, name: "მე" })
+      .returning({ id: telegramRecipients.id });
+    rows.push({ id: ins.id, chatId: legacy.value, name: "მე" });
+  }
+  return rows;
 }
 
 type ReminderRow = {
@@ -106,8 +138,9 @@ export async function runReminders(
   todayStr: string,
 ): Promise<ReminderResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN || (await getSetting(venueId, "telegramBotToken"));
-  const chatId = await getSetting(venueId, "telegramChatId");
-  if (!token || !chatId) return { ok: false, error: "Telegram არ არის დაკავშირებული", sent: 0, checked: 0 };
+  const recipients = await getRecipients(venueId);
+  if (!token || recipients.length === 0)
+    return { ok: false, error: "Telegram არ არის დაკავშირებული", sent: 0, checked: 0 };
 
   const d1 = addDays(todayStr, 1);
   const d2 = addDays(todayStr, 2);
@@ -139,8 +172,13 @@ export async function runReminders(
     const tag = `${b.eventDate}:${daysUntil}`;
     const already = new Set((b.reminderSentAt ?? "").split(",").filter(Boolean));
     if (already.has(tag)) continue;
-    const ok = await sendTelegram(token, chatId, formatReminder(b, daysUntil, venueName));
-    if (ok) {
+    const text = formatReminder(b, daysUntil, venueName);
+    // send to every recipient; count the event as sent if at least one delivered
+    let anyOk = false;
+    for (const rcp of recipients) {
+      if (await sendTelegram(token, rcp.chatId, text)) anyOk = true;
+    }
+    if (anyOk) {
       already.add(tag);
       await db
         .update(bookings)

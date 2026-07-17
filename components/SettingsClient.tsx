@@ -6,14 +6,18 @@ import {
   Check,
   Copy,
   Loader2,
+  Plus,
   RefreshCw,
   Send,
   Sheet as SheetIcon,
+  Trash2,
 } from "lucide-react";
 import {
+  addTelegramRecipients,
   connectTelegram,
   disconnectTelegram,
   duplicateVenueData,
+  removeTelegramRecipient,
   runSheetSync,
   saveSheetId,
   sendTestReminder,
@@ -28,7 +32,8 @@ type Venue = {
   capacity: number | null;
 };
 
-type TelegramStatus = { connected: boolean; hasToken: boolean; chatId: string };
+type TgRecipient = { id: number; name: string | null; chatId: string };
+type TelegramStatus = { hasToken: boolean; recipients: TgRecipient[] };
 
 export default function SettingsClient({
   venue,
@@ -64,12 +69,25 @@ function TelegramSection({ status }: { status: TelegramStatus }) {
   const [token, setToken] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const connected = status.hasToken && status.recipients.length > 0;
+
   const connect = () =>
     startTransition(async () => {
       setMsg(null);
       const res = await connectTelegram(token);
-      if (res?.ok) setMsg({ ok: true, text: "დაკავშირდა ✓ — სატესტო შეტყობინება გაიგზავნა Telegram-ში." });
-      else setMsg({ ok: false, text: res?.error ?? "ვერ დაუკავშირდა" });
+      if (res?.ok) {
+        setToken("");
+        setMsg({ ok: true, text: "დაკავშირდა ✓ — სატესტო შეტყობინება გაიგზავნა." });
+      } else setMsg({ ok: false, text: res?.error ?? "ვერ დაუკავშირდა" });
+    });
+
+  const addMore = () =>
+    startTransition(async () => {
+      setMsg(null);
+      const res = await addTelegramRecipients();
+      if (res?.ok)
+        setMsg({ ok: true, text: `დაემატა: ${(res.added ?? []).join(", ")}` });
+      else setMsg({ ok: false, text: res?.error ?? "ვერ დაემატა" });
     });
 
   return (
@@ -77,18 +95,53 @@ function TelegramSection({ status }: { status: TelegramStatus }) {
       title="Telegram შეხსენებები"
       action={<Send size={18} style={{ color: "var(--text-3)" }} />}
     >
-      {status.connected ? (
+      {connected ? (
         <>
-          <div
-            className="mb-3 flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
-            style={{ background: "var(--green-soft)", color: "var(--green)" }}
-          >
-            <Check size={16} /> დაკავშირებულია · chat {status.chatId}
-          </div>
           <p className="mb-3 text-sm" style={{ color: "var(--text-2)" }}>
-            ივენთამდე <b>2 და 1 დღით ადრე</b> მიიღებ შეხსენებას დამკვეთის სურვილებით.
+            ივენთამდე <b>2 და 1 დღით ადრე</b> ყველა თანამშრომელს მიუვა შეხსენება
+            დამკვეთის სურვილებით.
           </p>
+
+          <div className="mb-3 flex flex-col gap-2">
+            <div className="label">თანამშრომლები ({status.recipients.length})</div>
+            {status.recipients.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-center justify-between rounded-xl px-3 py-2"
+                style={{ background: "var(--surface-2)" }}
+              >
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  <Check size={15} style={{ color: "var(--green)" }} />
+                  {r.name || `chat ${r.chatId}`}
+                </span>
+                <button
+                  className="btn btn-danger !px-2 !py-1"
+                  disabled={pending}
+                  onClick={() => {
+                    if (confirm(`წავშალო ${r.name || "თანამშრომელი"}?`))
+                      startTransition(() => removeTelegramRecipient(r.id));
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="mb-3 rounded-xl px-4 py-3 text-xs leading-relaxed"
+            style={{ background: "var(--surface-2)", color: "var(--text-3)" }}
+          >
+            👥 <b>ახალი თანამშრომლის დამატება:</b> მან Telegram-ში იგივე ბოტს{" "}
+            <b>@AvenueReminder_BOT</b> მისწეროს <code>/start</code>, მერე დააჭირე
+            „თანამშრომლის დამატებას“.
+          </div>
+
           <div className="flex flex-wrap gap-2">
+            <button className="btn btn-primary" disabled={pending} onClick={addMore}>
+              {pending ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+              თანამშრომლის დამატება
+            </button>
             <button
               className="btn btn-ghost"
               disabled={pending}
@@ -99,14 +152,13 @@ function TelegramSection({ status }: { status: TelegramStatus }) {
                 })
               }
             >
-              {pending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-              სატესტო შეტყობინება
+              <Send size={15} /> ტესტი
             </button>
             <button
               className="btn btn-danger"
               disabled={pending}
               onClick={() => {
-                if (confirm("გავთიშო Telegram?")) startTransition(() => disconnectTelegram());
+                if (confirm("სრულად გავთიშო Telegram?")) startTransition(() => disconnectTelegram());
               }}
             >
               გათიშვა

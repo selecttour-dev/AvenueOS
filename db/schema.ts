@@ -447,6 +447,18 @@ export const operationalExpenses = pgTable("operational_expenses", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ---------- Telegram reminder recipients ----------
+
+export const telegramRecipients = pgTable("telegram_recipients", {
+  id: serial("id").primaryKey(),
+  venueId: integer("venue_id")
+    .notNull()
+    .references(() => venues.id, { onDelete: "cascade" }),
+  chatId: text("chat_id").notNull(),
+  name: text("name"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ---------- Partners (profit split) ----------
 
 export const partners = pgTable("partners", {
