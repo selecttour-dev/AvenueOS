@@ -1579,16 +1579,42 @@ export type TelegramRecipient = { id: number; name: string | null; chatId: strin
 export async function getTelegramStatus(): Promise<{
   hasToken: boolean;
   recipients: TelegramRecipient[];
+  joinCode: string;
 }> {
   const venueId = await getActiveVenueId();
-  if (!venueId) return { hasToken: false, recipients: [] };
-  const [tok] = await db
-    .select({ value: settings.value })
+  if (!venueId) return { hasToken: false, recipients: [], joinCode: "" };
+  const rows = await db
+    .select({ key: settings.key, value: settings.value })
     .from(settings)
-    .where(and(eq(settings.venueId, venueId), eq(settings.key, "telegramBotToken")));
-  const hasToken = !!(process.env.TELEGRAM_BOT_TOKEN || tok?.value);
+    .where(
+      and(
+        eq(settings.venueId, venueId),
+        inArray(settings.key, ["telegramBotToken", "telegramJoinCode"]),
+      ),
+    );
+  const get = (k: string) => rows.find((r) => r.key === k)?.value ?? "";
+  const hasToken = !!(process.env.TELEGRAM_BOT_TOKEN || get("telegramBotToken"));
   const recipients = await getRecipients(venueId);
-  return { hasToken, recipients };
+  return { hasToken, recipients, joinCode: get("telegramJoinCode") };
+}
+
+/** Generate (or rotate) the 4-digit code required for /start self-registration. */
+export async function regenerateJoinCode() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  const code = String(Math.floor(1000 + Math.random() * 9000));
+  await upsertSetting(venueId, "telegramJoinCode", code);
+  revalidatePath("/settings");
+  return { ok: true, code };
+}
+
+export async function disableJoinCode() {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .delete(settings)
+    .where(and(eq(settings.venueId, venueId), eq(settings.key, "telegramJoinCode")));
+  revalidatePath("/settings");
 }
 
 async function upsertSetting(venueId: number, key: string, value: string) {
@@ -1700,6 +1726,8 @@ export async function setupTelegramBot() {
         { command: "expense", description: "ხარჯი — მაგ: /expense 450 ბაზარი" },
         { command: "income", description: "შემოსავალი — მაგ: /income 300 ფოტოსესია" },
         { command: "payment", description: "გადახდა — მაგ: /payment ნათია 2000" },
+        { command: "close", description: "დღის დახურვა — მაგ: /close 500" },
+        { command: "client", description: "კლიენტის ისტორია — მაგ: /client ნათია" },
         { command: "help", description: "დახმარება" },
       ],
     }),

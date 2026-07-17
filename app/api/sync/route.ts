@@ -3,7 +3,14 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { settings, venues } from "@/db/schema";
 import { syncBookingsFromSheet } from "@/lib/sheet-sync";
-import { runReminders } from "@/lib/reminders";
+import { getRecipients, runReminders, sendTelegram } from "@/lib/reminders";
+import {
+  buildDailyDigest,
+  buildWeeklyReport,
+  setSendMarker,
+  shouldSendMarker,
+  tbilisiNow,
+} from "@/lib/digest";
 import { todayISO } from "@/lib/format";
 import { authToken } from "@/lib/auth";
 
@@ -47,6 +54,37 @@ export async function GET(req: Request) {
     } catch (e) {
       out.reminders = { ok: false, error: String(e) };
     }
+
+    // Morning digest (daily) + owners' report (Mondays), 09:00+ Tbilisi time,
+    // sent once per day via settings markers.
+    try {
+      const tb = tbilisiNow();
+      if (tb.hour >= 9) {
+        const [tokenRow] = await db
+          .select({ value: settings.value })
+          .from(settings)
+          .where(eq(settings.key, "telegramBotToken"));
+        const token = process.env.TELEGRAM_BOT_TOKEN || tokenRow?.value;
+        const recipients = token ? await getRecipients(v.id) : [];
+        if (token && recipients.length > 0) {
+          if (await shouldSendMarker(v.id, "digestSentOn", tb.dateISO)) {
+            const body = await buildDailyDigest(v.id, v.name, tb.dateISO);
+            for (const r of recipients) await sendTelegram(token, r.chatId, body);
+            await setSendMarker(v.id, "digestSentOn", tb.dateISO);
+            out.digest = { sent: recipients.length };
+          }
+          if (tb.weekday === 1 && (await shouldSendMarker(v.id, "weeklySentOn", tb.dateISO))) {
+            const body = await buildWeeklyReport(v.id, v.name, tb.dateISO);
+            for (const r of recipients) await sendTelegram(token, r.chatId, body);
+            await setSendMarker(v.id, "weeklySentOn", tb.dateISO);
+            out.weekly = { sent: recipients.length };
+          }
+        }
+      }
+    } catch (e) {
+      out.digest = { ok: false, error: String(e) };
+    }
+
     results[v.id] = out;
   }
 

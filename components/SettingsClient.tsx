@@ -14,8 +14,10 @@ import {
 } from "lucide-react";
 import {
   connectTelegram,
+  disableJoinCode,
   disconnectTelegram,
   duplicateVenueData,
+  regenerateJoinCode,
   removeTelegramRecipient,
   runSheetSync,
   saveSheetId,
@@ -33,7 +35,11 @@ type Venue = {
 };
 
 type TgRecipient = { id: number; name: string | null; chatId: string };
-type TelegramStatus = { hasToken: boolean; recipients: TgRecipient[] };
+type TelegramStatus = {
+  hasToken: boolean;
+  recipients: TgRecipient[];
+  joinCode: string;
+};
 
 export default function SettingsClient({
   venue,
@@ -125,12 +131,66 @@ function TelegramSection({ status }: { status: TelegramStatus }) {
             style={{ background: "var(--surface-2)", color: "var(--text-3)" }}
           >
             👥 <b>ახალი თანამშრომლის დამატება:</b> მან Telegram-ში ბოტს მისწეროს{" "}
-            <code>/start</code> — <b>ავტომატურად დაემატება</b> სიაში.
+            {status.joinCode ? (
+              <>
+                <code>/start {status.joinCode}</code> (კოდის გარეშე ვერ დაემატება)
+              </>
+            ) : (
+              <code>/start</code>
+            )}{" "}
+            — ავტომატურად დაემატება სიაში.
             <br />
-            💬 <b>ბრძანებები:</b> <code>/ჯავშნები</code> — სრული სია, <code>/დღეს</code> —
-            დღევანდელი ივენთები.
+            💬 <b>ბრძანებები:</b> <code>/ჯავშნები</code>, <code>/დღეს</code>,{" "}
+            <code>/კლიენტი</code>, <code>/ხარჯი</code>, <code>/გადახდა</code>,{" "}
+            <code>/დახურვა</code>.
             <br />
             ⚙️ ჯერ ერთხელ დააჭირე „ბოტის ჩართვას“ (მხოლოდ გამოქვეყნებულ საიტზე მუშაობს).
+          </div>
+
+          <div
+            className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl px-4 py-3"
+            style={
+              status.joinCode
+                ? { background: "var(--green-soft)" }
+                : { background: "var(--gold-soft)" }
+            }
+          >
+            <span className="text-sm font-semibold">
+              {status.joinCode ? (
+                <>
+                  🔐 სააქცესო კოდი: <code style={{ fontSize: 16 }}>{status.joinCode}</code>
+                </>
+              ) : (
+                <>⚠️ კოდი გამორთულია — ვინც ბოტს იპოვის, თავად დაემატება</>
+              )}
+            </span>
+            <div className="flex gap-2">
+              <button
+                className="btn btn-ghost !py-1 !text-xs"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    const r = await regenerateJoinCode();
+                    if (r && "code" in r && r.code)
+                      setMsg({ ok: true, text: `ახალი კოდი: ${r.code} — გაუზიარე მხოლოდ გუნდს` });
+                  })
+                }
+              >
+                {status.joinCode ? "კოდის შეცვლა" : "კოდის ჩართვა"}
+              </button>
+              {status.joinCode && (
+                <button
+                  className="btn btn-ghost !py-1 !text-xs"
+                  disabled={pending}
+                  onClick={() => {
+                    if (confirm("გავთიშო კოდი? ყველა შეძლებს დამატებას."))
+                      startTransition(() => disableJoinCode());
+                  }}
+                >
+                  გამორთვა
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">

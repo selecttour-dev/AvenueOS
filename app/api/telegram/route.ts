@@ -7,6 +7,8 @@ import {
   botAddExpense,
   botAddIncome,
   botAddPayment,
+  botClientHistory,
+  botCloseDay,
   parseAmountFirst,
   parseAmountLast,
 } from "@/lib/bot-commands";
@@ -20,13 +22,15 @@ const HELP = [
   "<b>ნახვა</b>",
   "/bookings (ან /ჯავშნები) — მომავალი ჯავშნების სია",
   "/today (ან /დღეს) — დღევანდელი ივენთები",
+  "/კლიენტი ნათია — კლიენტის ისტორია (სახელით/ტელეფონით)",
   "",
   "<b>ფულის ჩაწერა</b>",
   "/ხარჯი 450 ბაზარი — ხარჯი დღის რეესტრში",
   "/შემოსავალი 300 ფოტოსესია — შემოსავალი დღის რეესტრში",
   "/გადახდა ნათია 2000 — გადახდა ჯავშანზე",
+  "/დახურვა 500 — დღის დახურვა დათვლილი ნაღდით",
   "",
-  "ივენთამდე 2 და 1 დღით ადრე ავტომატურ შეხსენებას მიიღებ.",
+  "ყოველ დილას მოგივა დაიჯესტი, ივენთამდე 2 და 1 დღით ადრე — შეხსენება.",
 ].join("\n");
 
 /** Which venue this bot serves (the one whose token matches / the first one). */
@@ -72,24 +76,41 @@ export async function POST(req: Request) {
   const chatId = String(chat.id);
   const cmd = text.split(/\s+/)[0].replace(/@\w+$/, "").toLowerCase();
 
-  // /start — self-register this chat as a reminder recipient
+  // /start — self-register this chat as a reminder recipient.
+  // When a join code is set, registration requires it: /start 4821
   if (cmd === "/start") {
     const existing = await db
       .select({ id: telegramRecipients.id })
       .from(telegramRecipients)
       .where(and(eq(telegramRecipients.venueId, venue.id), eq(telegramRecipients.chatId, chatId)));
-    if (existing.length === 0) {
-      const name =
-        chat.title ?? [chat.first_name, chat.last_name].filter(Boolean).join(" ") ?? chat.username ?? null;
-      await db.insert(telegramRecipients).values({ venueId: venue.id, chatId, name });
+    if (existing.length > 0) {
+      await sendTelegram(venue.token, chatId, `უკვე ჩართული ხარ ✅\n\n${HELP}`);
+      return NextResponse.json({ ok: true });
+    }
+
+    const [codeRow] = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(and(eq(settings.venueId, venue.id), eq(settings.key, "telegramJoinCode")));
+    const joinCode = codeRow?.value ?? "";
+    const supplied = text.split(/\s+/)[1] ?? "";
+    if (joinCode && supplied !== joinCode) {
       await sendTelegram(
         venue.token,
         chatId,
-        `✅ <b>${venue.name}</b> — შეხსენებები ჩართულია.\n\n${HELP}`,
+        "🔐 დასამატებლად საჭიროა კოდი: <code>/start XXXX</code>\nკოდი იკითხე ადმინისტრატორთან.",
       );
-    } else {
-      await sendTelegram(venue.token, chatId, `უკვე ჩართული ხარ ✅\n\n${HELP}`);
+      return NextResponse.json({ ok: true });
     }
+
+    const name =
+      chat.title ?? [chat.first_name, chat.last_name].filter(Boolean).join(" ") ?? chat.username ?? null;
+    await db.insert(telegramRecipients).values({ venueId: venue.id, chatId, name });
+    await sendTelegram(
+      venue.token,
+      chatId,
+      `✅ <b>${venue.name}</b> — შეხსენებები ჩართულია.\n\n${HELP}`,
+    );
     return NextResponse.json({ ok: true });
   }
 
@@ -121,6 +142,21 @@ export async function POST(req: Request) {
   if (cmd === "/გადახდა" || cmd === "/payment") {
     const { name, amount } = parseAmountLast(args);
     await sendTelegram(venue.token, chatId, await botAddPayment(venue.id, name, amount, today));
+    return NextResponse.json({ ok: true });
+  }
+
+  if (cmd === "/დახურვა" || cmd === "/close") {
+    const counted = args ? Number(args.replace(",", ".")) : NaN;
+    await sendTelegram(
+      venue.token,
+      chatId,
+      await botCloseDay(venue.id, Number.isFinite(counted) ? counted : null, today),
+    );
+    return NextResponse.json({ ok: true });
+  }
+
+  if (cmd === "/კლიენტი" || cmd === "/client") {
+    await sendTelegram(venue.token, chatId, await botClientHistory(venue.id, args));
     return NextResponse.json({ ok: true });
   }
 
