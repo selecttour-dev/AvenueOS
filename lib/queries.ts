@@ -856,6 +856,139 @@ export async function getMonthSummary(
   };
 }
 
+// ---------- analytics ----------
+
+export type AnalyticsData = {
+  months: {
+    ym: string; // YYYY-MM
+    label: string; // "ივლ 26"
+    income: number; // ledger income (real money)
+    net: number; // ledger income − costs
+    events: number; // non-cancelled bookings that month
+    bookedDays: number; // distinct dates with an event
+    daysInMonth: number;
+  }[];
+  totals: {
+    events: number;
+    income: number;
+    net: number;
+    avgEventValue: number; // income / events
+    occupancyPct: number; // bookedDays / daysInMonth over the window
+    bestMonth: { label: string; income: number } | null;
+  };
+  eventTypes: { type: string; count: number }[];
+  upcomingEvents: number;
+};
+
+/** Last `monthsBack` months (default 12) of event + money trends. */
+export async function getAnalytics(
+  venueId: number,
+  monthsBack = 12,
+): Promise<AnalyticsData> {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const now = new Date();
+  const startY = now.getFullYear();
+  const startM = now.getMonth() + 1; // 1-based, current month
+  // window start = first day of the earliest month in range
+  const first = new Date(startY, startM - monthsBack, 1);
+  const startISO = `${first.getFullYear()}-${pad(first.getMonth() + 1)}-01`;
+  const todayStr = todayISO();
+
+  const [ledgerRows, bookingRows] = await Promise.all([
+    db
+      .select({
+        entryDate: ledger.entryDate,
+        type: ledger.type,
+        amount: ledger.amount,
+        qty: ledger.qty,
+      })
+      .from(ledger)
+      .where(and(eq(ledger.venueId, venueId), gte(ledger.entryDate, startISO))),
+    db
+      .select({
+        eventDate: bookings.eventDate,
+        eventType: bookings.eventType,
+        status: bookings.status,
+      })
+      .from(bookings)
+      .where(and(eq(bookings.venueId, venueId), gte(bookings.eventDate, startISO))),
+  ]);
+
+  const KA_MONTHS = ["იან", "თებ", "მარ", "აპრ", "მაი", "ივნ", "ივლ", "აგვ", "სექ", "ოქტ", "ნოე", "დეკ"];
+  // build the ordered month buckets
+  const months: AnalyticsData["months"] = [];
+  const idx = new Map<string, number>();
+  for (let i = monthsBack - 1; i >= 0; i--) {
+    const d = new Date(startY, startM - 1 - i, 1);
+    const ym = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    idx.set(ym, months.length);
+    months.push({
+      ym,
+      label: `${KA_MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`,
+      income: 0,
+      net: 0,
+      events: 0,
+      bookedDays: 0,
+      daysInMonth: new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(),
+    });
+  }
+
+  for (const r of ledgerRows) {
+    const ym = r.entryDate.slice(0, 7);
+    const i = idx.get(ym);
+    if (i == null) continue;
+    const t = r.amount * r.qty;
+    if (r.type === "income") {
+      months[i].income += t;
+      months[i].net += t;
+    } else {
+      months[i].net -= t;
+    }
+  }
+
+  const bookedDaySets = months.map(() => new Set<string>());
+  const eventTypeMap = new Map<string, number>();
+  let upcomingEvents = 0;
+  for (const b of bookingRows) {
+    if (b.status === "cancelled") continue;
+    const ym = b.eventDate.slice(0, 7);
+    const i = idx.get(ym);
+    if (i == null) continue;
+    months[i].events += 1;
+    bookedDaySets[i].add(b.eventDate);
+    eventTypeMap.set(b.eventType, (eventTypeMap.get(b.eventType) ?? 0) + 1);
+    if (b.eventDate >= todayStr) upcomingEvents += 1;
+  }
+  months.forEach((m, i) => (m.bookedDays = bookedDaySets[i].size));
+
+  const totalEvents = months.reduce((s, m) => s + m.events, 0);
+  const totalIncome = months.reduce((s, m) => s + m.income, 0);
+  const totalNet = months.reduce((s, m) => s + m.net, 0);
+  const totalBooked = months.reduce((s, m) => s + m.bookedDays, 0);
+  const totalDays = months.reduce((s, m) => s + m.daysInMonth, 0);
+  const best = months.reduce<AnalyticsData["totals"]["bestMonth"]>((acc, m) => {
+    if (m.income > 0 && (!acc || m.income > acc.income))
+      return { label: m.label, income: m.income };
+    return acc;
+  }, null);
+
+  return {
+    months,
+    totals: {
+      events: totalEvents,
+      income: totalIncome,
+      net: totalNet,
+      avgEventValue: totalEvents > 0 ? totalIncome / totalEvents : 0,
+      occupancyPct: totalDays > 0 ? (totalBooked / totalDays) * 100 : 0,
+      bestMonth: best,
+    },
+    eventTypes: [...eventTypeMap.entries()]
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count),
+    upcomingEvents,
+  };
+}
+
 // ---------- forecast / business model ----------
 
 export type ForecastData = {

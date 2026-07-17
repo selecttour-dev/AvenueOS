@@ -199,6 +199,31 @@ function ViewTab({
   );
 }
 
+function SummaryPill({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "primary" | "red";
+}) {
+  const styles: Record<string, { bg: string; fg: string }> = {
+    default: { bg: "var(--surface-2)", fg: "var(--text-2)" },
+    primary: { bg: "var(--primary-soft)", fg: "var(--primary-strong)" },
+    red: { bg: "var(--red-soft)", fg: "var(--red)" },
+  };
+  const s = styles[tone];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold"
+      style={{ background: s.bg, color: s.fg }}
+    >
+      {label}: <b>{value}</b>
+    </span>
+  );
+}
+
 // ---------------- List view ----------------
 
 function ListView({
@@ -392,8 +417,15 @@ function CalendarView({
     setCal({ y, m });
   };
 
-  const monthEventCount = bookings.filter(
-    (b) => b.status !== "cancelled" && b.eventDate.startsWith(`${cal.y}-${String(cal.m).padStart(2, "0")}`),
+  const monthPrefix = `${cal.y}-${String(cal.m).padStart(2, "0")}`;
+  const monthEvents = bookings.filter(
+    (b) => b.status !== "cancelled" && b.eventDate.startsWith(monthPrefix),
+  );
+  const monthEventCount = monthEvents.length;
+  const bookedDays = new Set(monthEvents.map((b) => b.eventDate)).size;
+  const occupancy = Math.round((bookedDays / daysInMonth) * 100);
+  const conflictDays = [...byDate.entries()].filter(
+    ([d, evs]) => d.startsWith(monthPrefix) && evs.length > 1,
   ).length;
 
   return (
@@ -404,10 +436,16 @@ function CalendarView({
           <span className="text-lg font-extrabold">{monthNameKa(cal.m - 1)} {cal.y}</span>
           <button className="btn btn-ghost !px-2.5" onClick={() => shiftMonth(1)}><ChevronRight size={16} /></button>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs" style={{ color: "var(--text-3)" }}>{monthEventCount} ივენთი</span>
-          <button className="btn btn-ghost !py-1.5" onClick={() => setCal({ y: ty, m: tm })}>დღეს</button>
-        </div>
+        <button className="btn btn-ghost !py-1.5" onClick={() => setCal({ y: ty, m: tm })}>დღეს</button>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        <SummaryPill label="ივენთი" value={String(monthEventCount)} />
+        <SummaryPill label="დაკავებული დღე" value={`${bookedDays} / ${daysInMonth}`} />
+        <SummaryPill label="დატვირთვა" value={`${occupancy}%`} tone="primary" />
+        {conflictDays > 0 && (
+          <SummaryPill label="ორმაგი ჯავშანი" value={String(conflictDays)} tone="red" />
+        )}
       </div>
 
       <div className="grid grid-cols-7 gap-1.5">
@@ -420,6 +458,7 @@ function CalendarView({
           const events = byDate.get(date) ?? [];
           const isToday = date === today;
           const busy = events.length > 0;
+          const conflict = events.length > 1;
           return (
             <div
               key={i}
@@ -429,10 +468,24 @@ function CalendarView({
               onKeyDown={(e) => e.key === "Enter" && onDay(date)}
               className="flex min-h-20 cursor-pointer flex-col gap-1 rounded-lg p-1.5 text-left transition-colors"
               style={{
-                border: isToday ? "1.5px solid var(--primary)" : "1px solid var(--border)",
-                background: busy ? "var(--surface-2)" : "var(--surface)",
+                border: conflict
+                  ? "1.5px solid var(--red)"
+                  : isToday
+                    ? "1.5px solid var(--primary)"
+                    : "1px solid var(--border)",
+                background: conflict
+                  ? "var(--red-soft)"
+                  : busy
+                    ? "var(--surface-2)"
+                    : "var(--surface)",
               }}
-              title={busy ? "დაკავებულია — დააჭირე ახალი ჯავშნისთვის" : "თავისუფალია — დააჭირე დასაჯავშნად"}
+              title={
+                conflict
+                  ? `ორმაგი ჯავშანი (${events.length}) — შეამოწმე`
+                  : busy
+                    ? "დაკავებულია — დააჭირე ახალი ჯავშნისთვის"
+                    : "თავისუფალია — დააჭირე დასაჯავშნად"
+              }
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold" style={{ color: isToday ? "var(--primary-strong)" : "var(--text-2)" }}>
