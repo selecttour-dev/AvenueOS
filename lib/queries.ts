@@ -402,6 +402,7 @@ export type BookingDetail = BookingRow & {
   venueId: number;
   startTime: string | null;
   endTime: string | null;
+  requirements: string | null;
   clientId: number | null;
   packageId: number | null;
   menuDishes: { id: number; dishId: number; qty: number; perGuest: boolean }[];
@@ -431,6 +432,7 @@ export async function getBookingDetail(
       discount: bookings.discount,
       status: bookings.status,
       notes: bookings.notes,
+      requirements: bookings.requirements,
       clientId: bookings.clientId,
       packageId: bookings.packageId,
       clientName: clients.name,

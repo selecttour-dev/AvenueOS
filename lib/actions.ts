@@ -1246,6 +1246,7 @@ export async function updateBooking(
     extraCharges?: number;
     discount?: number;
     notes?: string | null;
+    requirements?: string | null;
     clientName?: string | null;
     clientPhone?: string | null;
   },
@@ -1298,6 +1299,9 @@ export async function updateBooking(
         : {}),
       ...(input.discount !== undefined ? { discount: input.discount } : {}),
       ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+      ...(input.requirements !== undefined
+        ? { requirements: input.requirements?.trim() || null }
+        : {}),
       ...clientIdPatch,
     })
     .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
@@ -1305,6 +1309,18 @@ export async function updateBooking(
   revalidatePath("/bookings");
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/");
+  return { ok: true };
+}
+
+/** Quick-save just the requirements text (from the detail view's own box). */
+export async function saveBookingRequirements(bookingId: number, text: string) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  await db
+    .update(bookings)
+    .set({ requirements: text.trim() || null })
+    .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
+  revalidatePath(`/bookings/${bookingId}`);
   return { ok: true };
 }
 

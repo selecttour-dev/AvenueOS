@@ -116,6 +116,9 @@ export const bookings = pgTable(
     discount: money("discount").notNull().default(0),
     status: bookingStatusEnum("status").notNull().default("inquiry"),
     notes: text("notes"),
+    // What the client wants for this event (menu wishes, decor, timing…).
+    requirements: text("requirements"),
+    reminderSentAt: text("reminder_sent_at"), // last reminder day tag "YYYY-MM-DD:N"
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [index("bookings_venue_date").on(t.venueId, t.eventDate)],

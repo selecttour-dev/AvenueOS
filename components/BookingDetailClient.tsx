@@ -9,6 +9,7 @@ import {
   Check,
   CheckCircle2,
   CircleDollarSign,
+  ClipboardList,
   Copy,
   Eye,
   EyeOff,
@@ -34,6 +35,7 @@ import {
   deleteBookingDish,
   deleteBookingLedgerEntry,
   deletePayment,
+  saveBookingRequirements,
   setBookingLumpSum,
   setBookingPackage,
   updateBooking,
@@ -268,6 +270,10 @@ export default function BookingDetailClient({
           </Section>
         </div>
       )}
+
+      <div className="mt-6">
+        <RequirementsCard booking={booking} />
+      </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <DetailsPanel booking={booking} />
@@ -1107,6 +1113,60 @@ function SetPriceBox({
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------- Requirements (what the client wants) ----------------
+
+function RequirementsCard({ booking }: { booking: BookingDetail }) {
+  const [pending, startTransition] = useTransition();
+  const [text, setText] = useState(booking.requirements ?? "");
+  const [saved, setSaved] = useState(false);
+  const dirty = text !== (booking.requirements ?? "");
+
+  const save = () =>
+    startTransition(async () => {
+      await saveBookingRequirements(booking.id, text);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    });
+
+  return (
+    <Section
+      title="რას ითხოვს დამკვეთი"
+      action={
+        <div className="flex items-center gap-2">
+          {saved && (
+            <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
+              შენახულია ✓
+            </span>
+          )}
+          <ClipboardList size={18} style={{ color: "var(--text-3)" }} />
+        </div>
+      }
+    >
+      <textarea
+        className="textarea"
+        rows={4}
+        placeholder="მაგ. მენიუ: ცხელი კერძები, ფურშეტი; დეკორი — თეთრი ყვავილები; დაწყება 18:00; ტორტი დამკვეთის; მუსიკა DJ…"
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setSaved(false);
+        }}
+        onBlur={() => dirty && save()}
+      />
+      <div className="mt-2 flex items-center justify-between">
+        <p className="text-xs" style={{ color: "var(--text-3)" }}>
+          ავტომატურად ინახება. ეს ტექსტი ჩანს შეხსენებაშიც.
+        </p>
+        {dirty && (
+          <button className="btn btn-primary !py-1.5 !text-sm" disabled={pending} onClick={save}>
+            <Save size={14} /> შენახვა
+          </button>
+        )}
+      </div>
+    </Section>
   );
 }
 
