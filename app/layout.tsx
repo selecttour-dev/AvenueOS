@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Georgian } from "next/font/google";
 import "./globals.css";
+import ServiceWorker from "@/components/ServiceWorker";
 
 const noto = Noto_Sans_Georgian({
   subsets: ["georgian", "latin"],
@@ -9,8 +10,27 @@ const noto = Noto_Sans_Georgian({
 });
 
 export const metadata: Metadata = {
-  title: "VenueOS — ივენთ ჰოლის მართვა",
+  applicationName: "AvenueOS",
+  title: "AvenueOS — ივენთ ჰოლის მართვა",
   description: "ივენთ ჰოლის სრული ბიზნეს-მართვის სისტემა",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "AvenueOS",
+  },
+  icons: {
+    icon: "/icons/favicon-32.png",
+    apple: "/icons/apple-touch-icon.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#2d4a36",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -22,6 +42,7 @@ export default function RootLayout({
     <html lang="ka" className={noto.variable}>
       <body style={{ fontFamily: "var(--font-noto), system-ui, sans-serif" }}>
         {children}
+        <ServiceWorker />
       </body>
     </html>
   );
