@@ -504,3 +504,30 @@ export const advanceRepayments = pgTable("advance_repayments", {
   note: text("note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// General debts to recover from profit (inventory bought on credit, loans…).
+export const debts = pgTable("debts", {
+  id: serial("id").primaryKey(),
+  venueId: integer("venue_id")
+    .notNull()
+    .references(() => venues.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  amount: money("amount").notNull().default(0), // total owed
+  note: text("note"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const debtRepayments = pgTable("debt_repayments", {
+  id: serial("id").primaryKey(),
+  venueId: integer("venue_id")
+    .notNull()
+    .references(() => venues.id, { onDelete: "cascade" }),
+  debtId: integer("debt_id")
+    .notNull()
+    .references(() => debts.id, { onDelete: "cascade" }),
+  repayDate: date("repay_date").notNull(),
+  amount: money("amount").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

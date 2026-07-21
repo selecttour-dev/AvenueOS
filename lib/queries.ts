@@ -17,6 +17,8 @@ import {
   operationalExpenses,
   packageDishes,
   advanceRepayments,
+  debtRepayments,
+  debts,
   partnerDraws,
   partners,
   packages,
@@ -373,6 +375,59 @@ export async function getAdvances(venueId: number): Promise<PartnerAdvance[]> {
       advance: p.advanceAmount,
       repaid,
       remaining: p.advanceAmount - repaid,
+      repayments: mine,
+    };
+  });
+}
+
+// ---------- general debts (recovered from profit) ----------
+
+export type DebtRepayment = {
+  id: number;
+  debtId: number;
+  repayDate: string;
+  amount: number;
+  note: string | null;
+};
+
+export type DebtRow = {
+  id: number;
+  name: string;
+  amount: number;
+  repaid: number;
+  remaining: number;
+  repayments: DebtRepayment[];
+};
+
+export async function getDebts(venueId: number): Promise<DebtRow[]> {
+  const [rows, reps] = await Promise.all([
+    db
+      .select()
+      .from(debts)
+      .where(and(eq(debts.venueId, venueId), eq(debts.active, true)))
+      .orderBy(asc(debts.id)),
+    db
+      .select({
+        id: debtRepayments.id,
+        debtId: debtRepayments.debtId,
+        repayDate: debtRepayments.repayDate,
+        amount: debtRepayments.amount,
+        note: debtRepayments.note,
+      })
+      .from(debtRepayments)
+      .where(eq(debtRepayments.venueId, venueId))
+      .orderBy(desc(debtRepayments.repayDate), desc(debtRepayments.id)),
+  ]);
+
+  return rows.map((d) => {
+    const mine = reps.filter((r) => r.debtId === d.id);
+    const repaid = mine.reduce((s, r) => s + r.amount, 0);
+    return {
+      id: d.id,
+      name: d.name,
+      amount: d.amount,
+      repaid,
+      remaining: d.amount - repaid,
       repayments: mine,
     };
   });

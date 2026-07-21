@@ -29,12 +29,13 @@ import {
   updateStaff,
 } from "@/lib/actions";
 import type {
+  DebtRow,
   MonthSummary,
   PartnerAdvance,
   RegisterDay,
   StaffMember,
 } from "@/lib/queries";
-import { addAdvanceRepayment } from "@/lib/actions";
+import { addAdvanceRepayment, addDebtRepayment } from "@/lib/actions";
 import { EXPENSE_CATEGORIES } from "@/lib/booking-shared";
 import { gel, fmtDate, monthNameKa, todayISO } from "@/lib/format";
 import { PageHeader, Section, StatCard, EmptyState } from "@/components/ui";
@@ -60,6 +61,7 @@ export default function RegisterClient({
   incomeTaxPct,
   partners,
   advances,
+  debtList,
 }: {
   day: RegisterDay;
   month: MonthSummary;
@@ -67,6 +69,7 @@ export default function RegisterClient({
   incomeTaxPct: number;
   partners: PartnerLite[];
   advances: PartnerAdvance[];
+  debtList: DebtRow[];
 }) {
   const [tab, setTab] = useState<"day" | "staff" | "month">("day");
 
@@ -91,7 +94,9 @@ export default function RegisterClient({
         />
       </div>
 
-      {tab === "day" && <DayTab day={day} partners={partners} advances={advances} />}
+      {tab === "day" && (
+        <DayTab day={day} partners={partners} advances={advances} debtList={debtList} />
+      )}
       {tab === "staff" && <StaffTab staff={day.staff} />}
       {tab === "month" && (
         <MonthTab
@@ -139,10 +144,12 @@ function DayTab({
   day,
   partners,
   advances,
+  debtList,
 }: {
   day: RegisterDay;
   partners: PartnerLite[];
   advances: PartnerAdvance[];
+  debtList: DebtRow[];
 }) {
   const router = useRouter();
   const locked = !!day.close;
@@ -253,47 +260,58 @@ function DayTab({
         </div>
         <div className="grid gap-6">
           <ZReportPanel day={day} partners={partners} />
-          {advances.some((a) => a.remaining > 0) && (
-            <AdvanceRepayPanel key={day.date} advances={advances} day={day} net={day.net} />
-          )}
+          <DeductPanel key={day.date} advances={advances} debtList={debtList} day={day} net={day.net} />
         </div>
       </div>
     </>
   );
 }
 
-/** Deduct part of the day's leftover toward a partner's advance debt. */
-function AdvanceRepayPanel({
+type DeductTarget = { key: string; kind: "advance" | "debt"; id: number; name: string; remaining: number };
+
+/** Deduct part of the day's leftover toward a partner advance OR a general debt. */
+function DeductPanel({
   advances,
+  debtList,
   day,
   net,
 }: {
   advances: PartnerAdvance[];
+  debtList: DebtRow[];
   day: RegisterDay;
   net: number;
 }) {
+  const targets: DeductTarget[] = [
+    ...advances
+      .filter((a) => a.remaining > 0)
+      .map((a) => ({ key: `a${a.id}`, kind: "advance" as const, id: a.id, name: `${a.name} (ავანსი)`, remaining: a.remaining })),
+    ...debtList
+      .filter((d) => d.remaining > 0)
+      .map((d) => ({ key: `d${d.id}`, kind: "debt" as const, id: d.id, name: d.name, remaining: d.remaining })),
+  ];
   const [pending, startTransition] = useTransition();
-  const withDebt = advances.filter((a) => a.remaining > 0);
-  const [partnerId, setPartnerId] = useState(String(withDebt[0]?.id ?? ""));
+  const [key, setKey] = useState(targets[0]?.key ?? "");
   const [amount, setAmount] = useState("");
 
-  const sel = withDebt.find((a) => String(a.id) === partnerId);
+  if (targets.length === 0) return null;
+
+  const sel = targets.find((t) => t.key === key) ?? targets[0];
   const amt = Number(amount) || 0;
   const leftover = net - amt;
 
   return (
-    <Section title="ავანსის გაქვითვა დღიდან">
+    <Section title="ვალის გაქვითვა დღიდან">
       <p className="mb-3 text-sm" style={{ color: "var(--text-2)" }}>
-        დღეს დარჩა <b>{gel(net)}</b>. გაქვითე პარტნიორის ვალიდან — დარჩენილს სხვას
+        დღეს დარჩა <b>{gel(net)}</b>. გაქვითე ავანსიდან ან ვალიდან — დარჩენილს სხვას
         მოახმარ.
       </p>
       <div className="grid gap-3 sm:grid-cols-3">
         <div>
-          <label className="label">პარტნიორი</label>
-          <select className="select" value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
-            {withDebt.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name} (ვალი {gel(a.remaining)})
+          <label className="label">რას ვქვითავთ</label>
+          <select className="select" value={sel.key} onChange={(e) => setKey(e.target.value)}>
+            {targets.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.name} — {gel(t.remaining)}
               </option>
             ))}
           </select>
@@ -311,15 +329,14 @@ function AdvanceRepayPanel({
         <div className="flex items-end">
           <button
             className="btn btn-primary w-full"
-            disabled={pending || !partnerId || !(amt > 0)}
+            disabled={pending || !(amt > 0)}
             onClick={() =>
               startTransition(async () => {
-                await addAdvanceRepayment({
-                  partnerId: Number(partnerId),
-                  amount: amt,
-                  repayDate: day.date,
-                  note: "დღის მოგებიდან",
-                });
+                if (sel.kind === "advance") {
+                  await addAdvanceRepayment({ partnerId: sel.id, amount: amt, repayDate: day.date, note: "დღის მოგებიდან" });
+                } else {
+                  await addDebtRepayment({ debtId: sel.id, amount: amt, repayDate: day.date, note: "დღის მოგებიდან" });
+                }
                 setAmount("");
               })
             }
@@ -328,9 +345,9 @@ function AdvanceRepayPanel({
           </button>
         </div>
       </div>
-      {amt > 0 && sel && (
+      {amt > 0 && (
         <div className="mt-3 rounded-xl px-4 py-2.5 text-sm" style={{ background: "var(--surface-2)" }}>
-          {sel.name}: ვალი {gel(sel.remaining)} → <b>{gel(Math.max(sel.remaining - amt, 0))}</b>
+          {sel.name}: {gel(sel.remaining)} → <b>{gel(Math.max(sel.remaining - amt, 0))}</b>
           {"  ·  "}დღიდან დარჩება: <b style={{ color: leftover >= 0 ? "var(--green)" : "var(--red)" }}>{gel(leftover)}</b>
         </div>
       )}

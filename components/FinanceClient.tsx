@@ -13,21 +13,27 @@ import {
 } from "lucide-react";
 import {
   addAdvanceRepayment,
+  addDebtRepayment,
   addPartnerDraw,
+  createDebt,
   createFixedCost,
   createOperationalExpense,
   createPartner,
   deleteAdvanceRepayment,
+  deleteDebt,
+  deleteDebtRepayment,
   deleteFixedCost,
   deleteOperationalExpense,
   deletePartnerDraw,
   saveIncomeTaxPct,
   setPartnerAdvance,
+  updateDebt,
   updateFixedCost,
   updateOperationalExpense,
   updatePartner,
 } from "@/lib/actions";
 import type {
+  DebtRow,
   FixedCostRow,
   OperationalExpenseRow,
   PartnerAdvance,
@@ -43,12 +49,14 @@ export default function FinanceClient({
   incomeTaxPct,
   partnersData,
   advances,
+  debtList,
 }: {
   fixedCosts: FixedCostRow[];
   operational: OperationalExpenseRow[];
   incomeTaxPct: number;
   partnersData: PartnersData;
   advances: PartnerAdvance[];
+  debtList: DebtRow[];
 }) {
   const [tab, setTab] = useState<"fixed" | "operational" | "partners">("fixed");
   const activeCosts = fixedCosts.filter((f) => f.active);
@@ -80,7 +88,7 @@ export default function FinanceClient({
       </div>
 
       {tab === "partners" ? (
-        <PartnersTab data={partnersData} advances={advances} />
+        <PartnersTab data={partnersData} advances={advances} debtList={debtList} />
       ) : tab === "fixed" ? (
         <>
           <div className="mb-5 grid gap-4 sm:grid-cols-3">
@@ -501,9 +509,11 @@ function FixedCostRowView({ fc, share }: { fc: FixedCostRow; share: number }) {
 function PartnersTab({
   data,
   advances,
+  debtList,
 }: {
   data: PartnersData;
   advances: PartnerAdvance[];
+  debtList: DebtRow[];
 }) {
   const { partners, draws, totals } = data;
   const [pending, startTransition] = useTransition();
@@ -519,6 +529,10 @@ function PartnersTab({
     <>
       {/* advances (debt repaid from profit) */}
       {advances.length > 0 && <AdvancesSection advances={advances} />}
+
+      {/* general debts (inventory, loans…) */}
+      <DebtsSection debtList={debtList} />
+
 
       {/* distributable profit breakdown */}
       <Section title="განაწილებადი მოგება" className="mb-5">
@@ -932,6 +946,211 @@ function AdvanceCard({
                   disabled={pending}
                   onClick={() => {
                     if (confirm("წავშალო ეს გაქვითვა?")) startTransition(() => deleteAdvanceRepayment(r.id));
+                  }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------- General debts (inventory, loans — recovered from profit) ----------------
+
+function DebtsSection({ debtList }: { debtList: DebtRow[] }) {
+  const [pending, startTransition] = useTransition();
+  const [form, setForm] = useState({ name: "", amount: "" });
+  const [repay, setRepay] = useState({
+    debtId: "",
+    date: todayISO(),
+    amount: "",
+    note: "",
+  });
+  const withDebt = debtList.filter((d) => d.remaining > 0);
+  const totalRemaining = debtList.reduce((s, d) => s + d.remaining, 0);
+
+  return (
+    <Section
+      title="სხვა ვალები / გასაქვითი"
+      className="mb-5"
+      action={<Wallet size={18} style={{ color: "var(--text-3)" }} />}
+    >
+      <p className="mb-4 text-sm" style={{ color: "var(--text-2)" }}>
+        ინვენტარი, სესხები და სხვა ვალები, რომლებიც მოგებიდან უნდა დაიფაროს.
+      </p>
+
+      {debtList.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {debtList.map((d) => (
+            <DebtCard key={d.id} d={d} pending={pending} startTransition={startTransition} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState icon={Wallet} title="ვალები არ არის" text="დაამატე ვალი — მაგ. ინვენტარი ან ლუკას სესხი." />
+      )}
+
+      {/* add debt */}
+      <div className="mt-5 flex flex-wrap items-end gap-2">
+        <div className="min-w-40 flex-1">
+          <label className="label">ახალი ვალის დასახელება</label>
+          <input className="input" placeholder="მაგ. ინვენტარი" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </div>
+        <div>
+          <label className="label">თანხა ₾</label>
+          <input type="number" className="input !w-32" placeholder="0.00" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+        </div>
+        <button
+          className="btn btn-ghost"
+          disabled={pending || !form.name.trim()}
+          onClick={() =>
+            startTransition(async () => {
+              await createDebt({ name: form.name, amount: Number(form.amount) || 0 });
+              setForm({ name: "", amount: "" });
+            })
+          }
+        >
+          <Plus size={15} /> ვალის დამატება
+        </button>
+      </div>
+
+      {/* quick repayment */}
+      {withDebt.length > 0 && (
+        <div className="mt-4 rounded-xl p-4" style={{ background: "var(--surface-2)" }}>
+          <div className="mb-2 text-sm font-bold">გაქვითვის დამატება</div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div>
+              <label className="label">ვალი</label>
+              <select
+                className="select"
+                value={repay.debtId || String(withDebt[0].id)}
+                onChange={(e) => setRepay({ ...repay, debtId: e.target.value })}
+              >
+                {withDebt.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name} ({gel(d.remaining)})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">თარიღი</label>
+              <input type="date" className="input" value={repay.date} onChange={(e) => setRepay({ ...repay, date: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">თანხა ₾</label>
+              <input type="number" className="input" placeholder="0.00" value={repay.amount} onChange={(e) => setRepay({ ...repay, amount: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">შენიშვნა</label>
+              <input className="input" placeholder="მაგ. დღის მოგებიდან" value={repay.note} onChange={(e) => setRepay({ ...repay, note: e.target.value })} />
+            </div>
+            <div className="flex items-end">
+              <button
+                className="btn btn-primary w-full"
+                disabled={pending || !(Number(repay.amount) > 0)}
+                onClick={() =>
+                  startTransition(async () => {
+                    await addDebtRepayment({
+                      debtId: Number(repay.debtId || withDebt[0].id),
+                      amount: Number(repay.amount) || 0,
+                      repayDate: repay.date,
+                      note: repay.note,
+                    });
+                    setRepay({ ...repay, amount: "", note: "" });
+                  })
+                }
+              >
+                <Plus size={16} /> გაქვითვა
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {totalRemaining > 0 && (
+        <div className="mt-3 text-right text-sm">
+          სულ დარჩენილი ვალი: <b style={{ color: "var(--red)" }}>{gel(totalRemaining)}</b>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function DebtCard({
+  d,
+  pending,
+  startTransition,
+}: {
+  d: DebtRow;
+  pending: boolean;
+  startTransition: (cb: () => void) => void;
+}) {
+  const [amount, setAmount] = useState(String(d.amount));
+  const pct = d.amount > 0 ? Math.min((d.repaid / d.amount) * 100, 100) : 0;
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-extrabold">{d.name}</div>
+        <div className="flex items-center gap-2">
+          <div className="text-right">
+            <div className="text-xs" style={{ color: "var(--text-3)" }}>დარჩენილი</div>
+            <div className="text-xl font-extrabold" style={{ color: d.remaining > 0 ? "var(--red)" : "var(--green)" }}>
+              {gel(d.remaining)}
+            </div>
+          </div>
+          <button
+            className="btn btn-danger !px-2 !py-1.5"
+            disabled={pending}
+            onClick={() => {
+              if (confirm(`წავშალო ვალი „${d.name}"?`)) startTransition(() => deleteDebt(d.id));
+            }}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: "var(--text-3)" }}>
+        <span>ჯამი</span>
+        <input
+          type="number"
+          className="input !w-24 !py-1 !text-sm"
+          value={amount}
+          disabled={pending}
+          onChange={(e) => setAmount(e.target.value)}
+          onBlur={() => {
+            const v = Number(amount);
+            if (v >= 0 && v !== d.amount) startTransition(() => updateDebt(d.id, { amount: v }));
+          }}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        />
+        <span>· გაქვითული {gel(d.repaid)}</span>
+      </div>
+
+      <div className="mt-2 h-2.5 overflow-hidden rounded-full" style={{ background: "var(--surface-2)" }}>
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--green)" }} />
+      </div>
+
+      {d.repayments.length > 0 && (
+        <div className="mt-3 flex flex-col gap-1.5">
+          <div className="text-xs font-bold" style={{ color: "var(--text-2)" }}>
+            გაქვითვების ისტორია ({d.repayments.length})
+          </div>
+          {d.repayments.map((r) => (
+            <div key={r.id} className="flex items-center justify-between text-sm">
+              <span style={{ color: "var(--text-2)" }}>
+                {fmtDateShort(r.repayDate)}{r.note ? ` · ${r.note}` : ""}
+              </span>
+              <span className="flex items-center gap-2">
+                <b>−{gel(r.amount)}</b>
+                <button
+                  className="btn btn-danger !px-1.5 !py-1"
+                  disabled={pending}
+                  onClick={() => {
+                    if (confirm("წავშალო ეს გაქვითვა?")) startTransition(() => deleteDebtRepayment(r.id));
                   }}
                 >
                   <Trash2 size={13} />

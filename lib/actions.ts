@@ -24,6 +24,8 @@ import {
   operationalExpenses,
   packageDishes,
   advanceRepayments,
+  debtRepayments,
+  debts,
   partnerDraws,
   partners,
   packages,
@@ -1092,6 +1094,71 @@ export async function addAdvanceRepayment(input: {
 
 export async function deleteAdvanceRepayment(id: number) {
   await db.delete(advanceRepayments).where(eq(advanceRepayments.id, id));
+  revalidatePath("/finance");
+  revalidatePath("/register");
+}
+
+// ---------- general debts ----------
+
+export async function createDebt(input: { name: string; amount: number; note?: string }) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  if (!input.name.trim()) return { error: "დასახელება აუცილებელია" };
+  await db.insert(debts).values({
+    venueId,
+    name: input.name.trim(),
+    amount: Math.max(input.amount || 0, 0),
+    note: input.note?.trim() || null,
+  });
+  revalidatePath("/finance");
+  revalidatePath("/register");
+  return { ok: true };
+}
+
+export async function updateDebt(id: number, input: { name?: string; amount?: number }) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .update(debts)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.amount !== undefined ? { amount: Math.max(input.amount, 0) } : {}),
+    })
+    .where(and(eq(debts.id, id), eq(debts.venueId, venueId)));
+  revalidatePath("/finance");
+  revalidatePath("/register");
+}
+
+export async function deleteDebt(id: number) {
+  await db.delete(debts).where(eq(debts.id, id));
+  revalidatePath("/finance");
+  revalidatePath("/register");
+}
+
+export async function addDebtRepayment(input: {
+  debtId: number;
+  amount: number;
+  repayDate: string;
+  note?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
+  if (!input.repayDate) return { error: "თარიღი აუცილებელია" };
+  await db.insert(debtRepayments).values({
+    venueId,
+    debtId: input.debtId,
+    repayDate: input.repayDate,
+    amount: input.amount,
+    note: input.note?.trim() || null,
+  });
+  revalidatePath("/finance");
+  revalidatePath("/register");
+  return { ok: true };
+}
+
+export async function deleteDebtRepayment(id: number) {
+  await db.delete(debtRepayments).where(eq(debtRepayments.id, id));
   revalidatePath("/finance");
   revalidatePath("/register");
 }

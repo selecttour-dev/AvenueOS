@@ -5,6 +5,7 @@ import {
   getIncomeTaxPct,
   getPartnersLite,
   getAdvances,
+  getDebts,
 } from "@/lib/queries";
 import { todayISO } from "@/lib/format";
 import RegisterClient from "@/components/RegisterClient";
@@ -23,13 +24,15 @@ export default async function RegisterPage({
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(date ?? "") ? date! : todayISO();
   const [y, m] = iso.split("-").map(Number);
 
-  const [day, month, incomeTaxPct, partners, advances] = await Promise.all([
-    getRegisterDay(venueId, iso),
-    getMonthSummary(venueId, y, m),
-    getIncomeTaxPct(venueId),
-    getPartnersLite(venueId),
-    getAdvances(venueId),
-  ]);
+  const [day, month, incomeTaxPct, partners, advances, debtList] =
+    await Promise.all([
+      getRegisterDay(venueId, iso),
+      getMonthSummary(venueId, y, m),
+      getIncomeTaxPct(venueId),
+      getPartnersLite(venueId),
+      getAdvances(venueId),
+      getDebts(venueId),
+    ]);
 
   return (
     <RegisterClient
@@ -39,6 +42,7 @@ export default async function RegisterPage({
       incomeTaxPct={incomeTaxPct}
       partners={partners}
       advances={advances}
+      debtList={debtList}
     />
   );
 }
