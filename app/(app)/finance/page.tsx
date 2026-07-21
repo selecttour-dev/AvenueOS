@@ -1,5 +1,6 @@
 import { getActiveVenueId } from "@/lib/venue";
 import {
+  getAdvances,
   getFixedCosts,
   getIncomeTaxPct,
   getOperationalExpenses,
@@ -12,12 +13,13 @@ export const dynamic = "force-dynamic";
 export default async function FinancePage() {
   const venueId = await getActiveVenueId();
   if (!venueId) return null;
-  const [fixedCosts, operational, incomeTaxPct, partnersData] =
+  const [fixedCosts, operational, incomeTaxPct, partnersData, advances] =
     await Promise.all([
       getFixedCosts(venueId),
       getOperationalExpenses(venueId),
       getIncomeTaxPct(venueId),
       getPartnersData(venueId),
+      getAdvances(venueId),
     ]);
   return (
     <FinanceClient
@@ -25,6 +27,7 @@ export default async function FinancePage() {
       operational={operational}
       incomeTaxPct={incomeTaxPct}
       partnersData={partnersData}
+      advances={advances}
     />
   );
 }

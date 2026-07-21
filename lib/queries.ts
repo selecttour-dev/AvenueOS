@@ -16,6 +16,7 @@ import {
   menuTypes,
   operationalExpenses,
   packageDishes,
+  advanceRepayments,
   partnerDraws,
   partners,
   packages,
@@ -321,6 +322,60 @@ export async function getPartnersLite(
     .where(and(eq(partners.venueId, venueId), eq(partners.active, true)))
     .orderBy(asc(partners.id));
   return rows.map((p) => ({ id: p.id, name: p.name, sharePct: p.sharePct }));
+}
+
+// ---------- partner advances (debt repaid from profit) ----------
+
+export type AdvanceRepayment = {
+  id: number;
+  partnerId: number;
+  repayDate: string;
+  amount: number;
+  note: string | null;
+};
+
+export type PartnerAdvance = {
+  id: number;
+  name: string;
+  advance: number;
+  repaid: number;
+  remaining: number;
+  repayments: AdvanceRepayment[];
+};
+
+/** Each partner's advance, repayment history and running remaining. */
+export async function getAdvances(venueId: number): Promise<PartnerAdvance[]> {
+  const [pts, reps] = await Promise.all([
+    db
+      .select()
+      .from(partners)
+      .where(eq(partners.venueId, venueId))
+      .orderBy(asc(partners.id)),
+    db
+      .select({
+        id: advanceRepayments.id,
+        partnerId: advanceRepayments.partnerId,
+        repayDate: advanceRepayments.repayDate,
+        amount: advanceRepayments.amount,
+        note: advanceRepayments.note,
+      })
+      .from(advanceRepayments)
+      .where(eq(advanceRepayments.venueId, venueId))
+      .orderBy(desc(advanceRepayments.repayDate), desc(advanceRepayments.id)),
+  ]);
+
+  return pts.map((p) => {
+    const mine = reps.filter((r) => r.partnerId === p.id);
+    const repaid = mine.reduce((s, r) => s + r.amount, 0);
+    return {
+      id: p.id,
+      name: p.name,
+      advance: p.advanceAmount,
+      repaid,
+      remaining: p.advanceAmount - repaid,
+      repayments: mine,
+    };
+  });
 }
 
 export async function getFixedCosts(venueId: number): Promise<FixedCostRow[]> {

@@ -30,9 +30,11 @@ import {
 } from "@/lib/actions";
 import type {
   MonthSummary,
+  PartnerAdvance,
   RegisterDay,
   StaffMember,
 } from "@/lib/queries";
+import { addAdvanceRepayment } from "@/lib/actions";
 import { EXPENSE_CATEGORIES } from "@/lib/booking-shared";
 import { gel, fmtDate, monthNameKa, todayISO } from "@/lib/format";
 import { PageHeader, Section, StatCard, EmptyState } from "@/components/ui";
@@ -57,12 +59,14 @@ export default function RegisterClient({
   monthLabel,
   incomeTaxPct,
   partners,
+  advances,
 }: {
   day: RegisterDay;
   month: MonthSummary;
   monthLabel: { year: number; month: number };
   incomeTaxPct: number;
   partners: PartnerLite[];
+  advances: PartnerAdvance[];
 }) {
   const [tab, setTab] = useState<"day" | "staff" | "month">("day");
 
@@ -87,7 +91,7 @@ export default function RegisterClient({
         />
       </div>
 
-      {tab === "day" && <DayTab day={day} partners={partners} />}
+      {tab === "day" && <DayTab day={day} partners={partners} advances={advances} />}
       {tab === "staff" && <StaffTab staff={day.staff} />}
       {tab === "month" && (
         <MonthTab
@@ -131,7 +135,15 @@ function TabButton({
 
 // ---------------- Day ----------------
 
-function DayTab({ day, partners }: { day: RegisterDay; partners: PartnerLite[] }) {
+function DayTab({
+  day,
+  partners,
+  advances,
+}: {
+  day: RegisterDay;
+  partners: PartnerLite[];
+  advances: PartnerAdvance[];
+}) {
   const router = useRouter();
   const locked = !!day.close;
 
@@ -239,9 +251,90 @@ function DayTab({ day, partners }: { day: RegisterDay; partners: PartnerLite[] }
           )}
           <EntriesPanel day={day} locked={locked} />
         </div>
-        <ZReportPanel day={day} partners={partners} />
+        <div className="grid gap-6">
+          <ZReportPanel day={day} partners={partners} />
+          {advances.some((a) => a.remaining > 0) && (
+            <AdvanceRepayPanel key={day.date} advances={advances} day={day} net={day.net} />
+          )}
+        </div>
       </div>
     </>
+  );
+}
+
+/** Deduct part of the day's leftover toward a partner's advance debt. */
+function AdvanceRepayPanel({
+  advances,
+  day,
+  net,
+}: {
+  advances: PartnerAdvance[];
+  day: RegisterDay;
+  net: number;
+}) {
+  const [pending, startTransition] = useTransition();
+  const withDebt = advances.filter((a) => a.remaining > 0);
+  const [partnerId, setPartnerId] = useState(String(withDebt[0]?.id ?? ""));
+  const [amount, setAmount] = useState("");
+
+  const sel = withDebt.find((a) => String(a.id) === partnerId);
+  const amt = Number(amount) || 0;
+  const leftover = net - amt;
+
+  return (
+    <Section title="ავანსის გაქვითვა დღიდან">
+      <p className="mb-3 text-sm" style={{ color: "var(--text-2)" }}>
+        დღეს დარჩა <b>{gel(net)}</b>. გაქვითე პარტნიორის ვალიდან — დარჩენილს სხვას
+        მოახმარ.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <label className="label">პარტნიორი</label>
+          <select className="select" value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
+            {withDebt.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} (ვალი {gel(a.remaining)})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">თანხა ₾</label>
+          <input
+            type="number"
+            className="input"
+            placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </div>
+        <div className="flex items-end">
+          <button
+            className="btn btn-primary w-full"
+            disabled={pending || !partnerId || !(amt > 0)}
+            onClick={() =>
+              startTransition(async () => {
+                await addAdvanceRepayment({
+                  partnerId: Number(partnerId),
+                  amount: amt,
+                  repayDate: day.date,
+                  note: "დღის მოგებიდან",
+                });
+                setAmount("");
+              })
+            }
+          >
+            გაქვითვა
+          </button>
+        </div>
+      </div>
+      {amt > 0 && sel && (
+        <div className="mt-3 rounded-xl px-4 py-2.5 text-sm" style={{ background: "var(--surface-2)" }}>
+          {sel.name}: ვალი {gel(sel.remaining)} → <b>{gel(Math.max(sel.remaining - amt, 0))}</b>
+          {"  ·  "}დღიდან დარჩება: <b style={{ color: leftover >= 0 ? "var(--green)" : "var(--red)" }}>{gel(leftover)}</b>
+        </div>
+      )}
+    </Section>
   );
 }
 

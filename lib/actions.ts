@@ -23,6 +23,7 @@ import {
   menuTypes,
   operationalExpenses,
   packageDishes,
+  advanceRepayments,
   partnerDraws,
   partners,
   packages,
@@ -1049,6 +1050,50 @@ export async function addPartnerDraw(input: {
 export async function deletePartnerDraw(id: number) {
   await db.delete(partnerDraws).where(eq(partnerDraws.id, id));
   revalidatePath("/finance");
+}
+
+// ---------- partner advances ----------
+
+/** Set a partner's initial advance (the debt they took). */
+export async function setPartnerAdvance(partnerId: number, amount: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  await db
+    .update(partners)
+    .set({ advanceAmount: Math.max(amount || 0, 0) })
+    .where(and(eq(partners.id, partnerId), eq(partners.venueId, venueId)));
+  revalidatePath("/finance");
+  revalidatePath("/register");
+  return { ok: true };
+}
+
+/** Record a repayment that reduces a partner's advance debt. */
+export async function addAdvanceRepayment(input: {
+  partnerId: number;
+  amount: number;
+  repayDate: string;
+  note?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
+  if (!input.repayDate) return { error: "თარიღი აუცილებელია" };
+  await db.insert(advanceRepayments).values({
+    venueId,
+    partnerId: input.partnerId,
+    repayDate: input.repayDate,
+    amount: input.amount,
+    note: input.note?.trim() || null,
+  });
+  revalidatePath("/finance");
+  revalidatePath("/register");
+  return { ok: true };
+}
+
+export async function deleteAdvanceRepayment(id: number) {
+  await db.delete(advanceRepayments).where(eq(advanceRepayments.id, id));
+  revalidatePath("/finance");
+  revalidatePath("/register");
 }
 
 // ---------- inventory ----------

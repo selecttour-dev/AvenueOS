@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import {
   CalendarDays,
+  HandCoins,
   Plus,
   ReceiptText,
   Trash2,
@@ -11,14 +12,17 @@ import {
   Wallet,
 } from "lucide-react";
 import {
+  addAdvanceRepayment,
   addPartnerDraw,
   createFixedCost,
   createOperationalExpense,
   createPartner,
+  deleteAdvanceRepayment,
   deleteFixedCost,
   deleteOperationalExpense,
   deletePartnerDraw,
   saveIncomeTaxPct,
+  setPartnerAdvance,
   updateFixedCost,
   updateOperationalExpense,
   updatePartner,
@@ -26,6 +30,7 @@ import {
 import type {
   FixedCostRow,
   OperationalExpenseRow,
+  PartnerAdvance,
   PartnersData,
 } from "@/lib/queries";
 import { gel, fmtDateShort, todayISO } from "@/lib/format";
@@ -37,11 +42,13 @@ export default function FinanceClient({
   operational,
   incomeTaxPct,
   partnersData,
+  advances,
 }: {
   fixedCosts: FixedCostRow[];
   operational: OperationalExpenseRow[];
   incomeTaxPct: number;
   partnersData: PartnersData;
+  advances: PartnerAdvance[];
 }) {
   const [tab, setTab] = useState<"fixed" | "operational" | "partners">("fixed");
   const activeCosts = fixedCosts.filter((f) => f.active);
@@ -73,7 +80,7 @@ export default function FinanceClient({
       </div>
 
       {tab === "partners" ? (
-        <PartnersTab data={partnersData} />
+        <PartnersTab data={partnersData} advances={advances} />
       ) : tab === "fixed" ? (
         <>
           <div className="mb-5 grid gap-4 sm:grid-cols-3">
@@ -491,7 +498,13 @@ function FixedCostRowView({ fc, share }: { fc: FixedCostRow; share: number }) {
 
 // ---------------- Partners (profit split) ----------------
 
-function PartnersTab({ data }: { data: PartnersData }) {
+function PartnersTab({
+  data,
+  advances,
+}: {
+  data: PartnersData;
+  advances: PartnerAdvance[];
+}) {
   const { partners, draws, totals } = data;
   const [pending, startTransition] = useTransition();
   const [drawForm, setDrawForm] = useState({
@@ -504,6 +517,9 @@ function PartnersTab({ data }: { data: PartnersData }) {
 
   return (
     <>
+      {/* advances (debt repaid from profit) */}
+      {advances.length > 0 && <AdvancesSection advances={advances} />}
+
       {/* distributable profit breakdown */}
       <Section title="განაწილებადი მოგება" className="mb-5">
         <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
@@ -761,6 +777,169 @@ function PartnerCard({ p }: { p: PartnersData["partners"][number] }) {
         <p className="mt-3 rounded-lg px-3 py-2 text-xs" style={{ background: "var(--amber-soft)", color: "var(--amber)" }}>
           ავანსით მეტი აქვს აღებული — სხვაობა მომავალი მოგებიდან გაიქვითება.
         </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------- Partner advances (debt repaid from profit) ----------------
+
+function AdvancesSection({ advances }: { advances: PartnerAdvance[] }) {
+  const [pending, startTransition] = useTransition();
+  const [form, setForm] = useState({
+    partnerId: advances[0] ? String(advances[0].id) : "",
+    date: todayISO(),
+    amount: "",
+    note: "",
+  });
+  const totalRemaining = advances.reduce((s, a) => s + a.remaining, 0);
+
+  return (
+    <Section
+      title="ავანსების ბალანსი (ბე)"
+      className="mb-5"
+      action={<HandCoins size={18} style={{ color: "var(--text-3)" }} />}
+    >
+      <p className="mb-4 text-sm" style={{ color: "var(--text-2)" }}>
+        პარტნიორის აღებული ავანსი, რომელიც მოგებიდან ქვითდება. ქვემოთ ჩანს როდის
+        რამდენი გაიქვითა.
+      </p>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {advances.map((a) => (
+          <AdvanceCard key={a.id} a={a} pending={pending} startTransition={startTransition} />
+        ))}
+      </div>
+
+      {/* quick repayment */}
+      <div className="mt-5 rounded-xl p-4" style={{ background: "var(--surface-2)" }}>
+        <div className="mb-2 text-sm font-bold">გაქვითვის დამატება</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div>
+            <label className="label">პარტნიორი</label>
+            <select
+              className="select"
+              value={form.partnerId}
+              onChange={(e) => setForm({ ...form, partnerId: e.target.value })}
+            >
+              {advances.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">თარიღი</label>
+            <input type="date" className="input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">თანხა ₾</label>
+            <input type="number" className="input" placeholder="0.00" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">შენიშვნა</label>
+            <input className="input" placeholder="მაგ. დღის მოგებიდან" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+          </div>
+          <div className="flex items-end">
+            <button
+              className="btn btn-primary w-full"
+              disabled={pending || !form.partnerId || !(Number(form.amount) > 0)}
+              onClick={() =>
+                startTransition(async () => {
+                  await addAdvanceRepayment({
+                    partnerId: Number(form.partnerId),
+                    amount: Number(form.amount) || 0,
+                    repayDate: form.date,
+                    note: form.note,
+                  });
+                  setForm({ ...form, amount: "", note: "" });
+                })
+              }
+            >
+              <Plus size={16} /> გაქვითვა
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 text-right text-sm">
+        სულ დარჩენილი ვალი: <b style={{ color: totalRemaining > 0 ? "var(--red)" : "var(--green)" }}>{gel(totalRemaining)}</b>
+      </div>
+    </Section>
+  );
+}
+
+function AdvanceCard({
+  a,
+  pending,
+  startTransition,
+}: {
+  a: PartnerAdvance;
+  pending: boolean;
+  startTransition: (cb: () => void) => void;
+}) {
+  const [amount, setAmount] = useState(String(a.advance));
+  const pct = a.advance > 0 ? Math.min((a.repaid / a.advance) * 100, 100) : 0;
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-extrabold">{a.name}</div>
+        <div className="text-right">
+          <div className="text-xs" style={{ color: "var(--text-3)" }}>დარჩენილი ვალი</div>
+          <div className="text-xl font-extrabold" style={{ color: a.remaining > 0 ? "var(--red)" : "var(--green)" }}>
+            {gel(a.remaining)}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: "var(--text-3)" }}>
+        <span>ავანსი</span>
+        <input
+          type="number"
+          className="input !w-24 !py-1 !text-sm"
+          value={amount}
+          disabled={pending}
+          onChange={(e) => setAmount(e.target.value)}
+          onBlur={() => {
+            const v = Number(amount);
+            if (v >= 0 && v !== a.advance) startTransition(() => setPartnerAdvance(a.id, v));
+          }}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        />
+        <span>· გაქვითული {gel(a.repaid)}</span>
+      </div>
+
+      {/* progress */}
+      <div className="mt-2 h-2.5 overflow-hidden rounded-full" style={{ background: "var(--surface-2)" }}>
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--green)" }} />
+      </div>
+
+      {/* repayment history */}
+      {a.repayments.length > 0 && (
+        <div className="mt-3 flex flex-col gap-1.5">
+          <div className="text-xs font-bold" style={{ color: "var(--text-2)" }}>
+            გაქვითვების ისტორია ({a.repayments.length})
+          </div>
+          {a.repayments.map((r) => (
+            <div key={r.id} className="flex items-center justify-between text-sm">
+              <span style={{ color: "var(--text-2)" }}>
+                {fmtDateShort(r.repayDate)}{r.note ? ` · ${r.note}` : ""}
+              </span>
+              <span className="flex items-center gap-2">
+                <b>−{gel(r.amount)}</b>
+                <button
+                  className="btn btn-danger !px-1.5 !py-1"
+                  disabled={pending}
+                  onClick={() => {
+                    if (confirm("წავშალო ეს გაქვითვა?")) startTransition(() => deleteAdvanceRepayment(r.id));
+                  }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

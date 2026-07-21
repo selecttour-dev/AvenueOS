@@ -470,6 +470,8 @@ export const partners = pgTable("partners", {
   sharePct: numeric("share_pct", { precision: 5, scale: 2, mode: "number" })
     .notNull()
     .default(50),
+  // Personal advance the partner took (a debt repaid from profit over time).
+  advanceAmount: money("advance_amount").notNull().default(0),
   active: boolean("active").notNull().default(true),
 });
 
@@ -483,6 +485,21 @@ export const partnerDraws = pgTable("partner_draws", {
     .notNull()
     .references(() => partners.id, { onDelete: "cascade" }),
   drawDate: date("draw_date").notNull(),
+  amount: money("amount").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// A repayment that reduces a partner's advance debt (from a day's profit).
+export const advanceRepayments = pgTable("advance_repayments", {
+  id: serial("id").primaryKey(),
+  venueId: integer("venue_id")
+    .notNull()
+    .references(() => venues.id, { onDelete: "cascade" }),
+  partnerId: integer("partner_id")
+    .notNull()
+    .references(() => partners.id, { onDelete: "cascade" }),
+  repayDate: date("repay_date").notNull(),
   amount: money("amount").notNull(),
   note: text("note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
