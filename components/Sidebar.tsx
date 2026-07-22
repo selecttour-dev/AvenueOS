@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
+  Layers,
   ChartColumnBig,
   CalendarHeart,
   BookOpenCheck,
@@ -24,6 +25,7 @@ import { logout } from "@/app/login/actions";
 
 const NAV = [
   { href: "/", label: "დაფა", icon: LayoutDashboard },
+  { href: "/overview", label: "სრული სურათი", icon: Layers },
   { href: "/analytics", label: "ანალიტიკა", icon: ChartColumnBig },
   { href: "/bookings", label: "ჯავშნები", icon: CalendarHeart },
   { href: "/register", label: "დღის რეესტრი", icon: BookOpenCheck },

@@ -428,6 +428,37 @@ export async function deleteLedgerEntry(id: number) {
   revalidatePath("/");
 }
 
+/** Edit a register entry's description (category) and/or amount inline. */
+export async function updateLedgerEntry(
+  id: number,
+  input: { category?: string; amount?: number },
+) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  const [row] = await db
+    .select({ paymentId: ledger.paymentId, bookingId: ledger.bookingId })
+    .from(ledger)
+    .where(and(eq(ledger.id, id), eq(ledger.venueId, venueId)));
+  if (!row) return;
+
+  await db
+    .update(ledger)
+    .set({
+      ...(input.category !== undefined ? { category: input.category.trim() || null } : {}),
+      ...(input.amount !== undefined && input.amount >= 0 ? { amount: input.amount } : {}),
+    })
+    .where(eq(ledger.id, id));
+
+  // keep a mirrored booking payment in sync when its amount changes
+  if (row.paymentId && input.amount !== undefined && input.amount >= 0) {
+    await db.update(payments).set({ amount: input.amount }).where(eq(payments.id, row.paymentId));
+    if (row.bookingId) revalidatePath(`/bookings/${row.bookingId}`);
+    revalidatePath("/bookings");
+  }
+  revalidatePath("/register");
+  revalidatePath("/");
+}
+
 /** Log a shift wage for every active staff member on the given date,
  *  skipping anyone who already has a wage entry that day. */
 export async function logAllStaffShift(entryDate: string) {

@@ -8,15 +8,18 @@ import {
   ArrowUpCircle,
   CalendarDays,
   CalendarHeart,
+  Check,
   ChevronLeft,
   ChevronRight,
   Lock,
   LockOpen,
+  Pencil,
   Plus,
   Trash2,
   Users,
   UsersRound,
   Wallet,
+  X,
 } from "lucide-react";
 import {
   addLedgerEntry,
@@ -26,6 +29,7 @@ import {
   deleteStaff,
   logAllStaffShift,
   reopenDay,
+  updateLedgerEntry,
   updateStaff,
 } from "@/lib/actions";
 import type {
@@ -555,70 +559,110 @@ function EntriesPanel({ day, locked }: { day: RegisterDay; locked: boolean }) {
               </tr>
             </thead>
             <tbody>
-              {day.entries.map((e) => {
-                const total = e.amount * e.qty;
-                const income = e.type === "income";
-                return (
-                  <tr key={e.id}>
-                    <td>
-                      <span
-                        className="badge"
-                        style={
-                          income
-                            ? { background: "var(--green-soft)", color: "var(--green)" }
-                            : { background: "var(--red-soft)", color: "var(--red)" }
-                        }
-                      >
-                        {TYPE_LABELS[e.type]}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="font-semibold">
-                        {e.staffName ?? e.category ?? TYPE_LABELS[e.type]}
-                      </div>
-                      <div className="text-xs" style={{ color: "var(--text-3)" }}>
-                        {e.qty !== 1 ? `${e.qty} × ${gel(e.amount, 2)}` : ""}
-                        {e.bookingTitle ? ` · ` : ""}
-                        {e.bookingTitle && (
-                          <Link
-                            href={`/bookings/${e.bookingId}`}
-                            className="underline"
-                            style={{ color: "var(--primary)" }}
-                          >
-                            {e.bookingTitle}
-                          </Link>
-                        )}
-                        {e.note ? ` ${e.note}` : ""}
-                      </div>
-                    </td>
-                    <td
-                      className="whitespace-nowrap font-bold"
-                      style={{ color: income ? "var(--green)" : "var(--red)" }}
-                    >
-                      {income ? "+" : "−"}
-                      {gel(total)}
-                    </td>
-                    {!locked && (
-                      <td>
-                        <div className="flex justify-end">
-                          <button
-                            className="btn btn-ghost !px-2 !py-1.5"
-                            disabled={pending}
-                            onClick={() => startTransition(() => deleteLedgerEntry(e.id))}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
+              {day.entries.map((e) => (
+                <EntryRow key={e.id} e={e} locked={locked} />
+              ))}
             </tbody>
           </table>
         </div>
       )}
     </Section>
+  );
+}
+
+function EntryRow({ e, locked }: { e: RegisterDay["entries"][number]; locked: boolean }) {
+  const [pending, startTransition] = useTransition();
+  const [editing, setEditing] = useState(false);
+  const [cat, setCat] = useState(e.category ?? "");
+  const [amount, setAmount] = useState(String(e.amount));
+  const total = e.amount * e.qty;
+  const income = e.type === "income";
+
+  const save = () =>
+    startTransition(async () => {
+      await updateLedgerEntry(e.id, { category: cat, amount: Number(amount) || 0 });
+      setEditing(false);
+    });
+
+  return (
+    <tr>
+      <td>
+        <span
+          className="badge"
+          style={
+            income
+              ? { background: "var(--green-soft)", color: "var(--green)" }
+              : { background: "var(--red-soft)", color: "var(--red)" }
+          }
+        >
+          {TYPE_LABELS[e.type]}
+        </span>
+      </td>
+      {editing ? (
+        <>
+          <td>
+            <input className="input !py-1.5" value={cat} onChange={(ev) => setCat(ev.target.value)} placeholder="აღწერა" />
+          </td>
+          <td>
+            <input
+              type="number"
+              className="input !w-28 !py-1.5"
+              value={amount}
+              onChange={(ev) => setAmount(ev.target.value)}
+              onKeyDown={(ev) => ev.key === "Enter" && save()}
+            />
+          </td>
+          <td>
+            <div className="flex justify-end gap-1">
+              <button className="btn btn-primary !px-2 !py-1.5" disabled={pending} onClick={save}>
+                <Check size={14} />
+              </button>
+              <button className="btn btn-ghost !px-2 !py-1.5" disabled={pending} onClick={() => setEditing(false)}>
+                <X size={14} />
+              </button>
+            </div>
+          </td>
+        </>
+      ) : (
+        <>
+          <td>
+            <div className="font-semibold">{e.staffName ?? e.category ?? TYPE_LABELS[e.type]}</div>
+            <div className="text-xs" style={{ color: "var(--text-3)" }}>
+              {e.qty !== 1 ? `${e.qty} × ${gel(e.amount, 2)}` : ""}
+              {e.bookingTitle ? ` · ` : ""}
+              {e.bookingTitle && (
+                <Link href={`/bookings/${e.bookingId}`} className="underline" style={{ color: "var(--primary)" }}>
+                  {e.bookingTitle}
+                </Link>
+              )}
+              {e.note ? ` ${e.note}` : ""}
+            </div>
+          </td>
+          <td className="whitespace-nowrap font-bold" style={{ color: income ? "var(--green)" : "var(--red)" }}>
+            {income ? "+" : "−"}
+            {gel(total)}
+          </td>
+          {!locked && (
+            <td>
+              <div className="flex justify-end gap-1">
+                <button className="btn btn-ghost !px-2 !py-1.5" disabled={pending} onClick={() => setEditing(true)} title="რედაქტირება">
+                  <Pencil size={14} />
+                </button>
+                <button
+                  className="btn btn-ghost !px-2 !py-1.5"
+                  disabled={pending}
+                  onClick={() => {
+                    if (confirm("წავშალო ჩანაწერი?")) startTransition(() => deleteLedgerEntry(e.id));
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </td>
+          )}
+        </>
+      )}
+    </tr>
   );
 }
 

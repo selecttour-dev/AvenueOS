@@ -380,6 +380,138 @@ export async function getAdvances(venueId: number): Promise<PartnerAdvance[]> {
   });
 }
 
+// ---------- full financial overview ----------
+
+export type OverviewData = {
+  income: number;
+  costs: number; // ledger expense + wage
+  dayProfit: number;
+  operational: number;
+  tax: number;
+  distributable: number;
+  margin: number; // dayProfit / income
+  events: number;
+  avgProfit: number;
+  partners: {
+    id: number;
+    name: string;
+    sharePct: number;
+    allocated: number;
+    drawn: number;
+    advanceRemaining: number;
+  }[];
+  debts: { name: string; remaining: number }[];
+  categories: { category: string; total: number }[];
+  months: { label: string; income: number; costs: number; profit: number; events: number; margin: number }[];
+};
+
+export async function getOverview(venueId: number): Promise<OverviewData> {
+  const KA_MONTHS = ["იან", "თებ", "მარ", "აპრ", "მაი", "ივნ", "ივლ", "აგვ", "სექ", "ოქტ", "ნოე", "დეკ"];
+
+  const [ledgerRows, opRows, taxPct, partnersData, advances, debtRows, bookingRows] =
+    await Promise.all([
+      db
+        .select({
+          type: ledger.type,
+          category: ledger.category,
+          amount: ledger.amount,
+          qty: ledger.qty,
+          entryDate: ledger.entryDate,
+        })
+        .from(ledger)
+        .where(eq(ledger.venueId, venueId)),
+      db
+        .select({ amount: operationalExpenses.amount })
+        .from(operationalExpenses)
+        .where(and(eq(operationalExpenses.venueId, venueId), eq(operationalExpenses.kind, "operational"))),
+      getIncomeTaxPct(venueId),
+      getPartnersData(venueId),
+      getAdvances(venueId),
+      getDebts(venueId),
+      db
+        .select({ eventDate: bookings.eventDate, status: bookings.status })
+        .from(bookings)
+        .where(eq(bookings.venueId, venueId)),
+    ]);
+
+  let income = 0;
+  let costs = 0;
+  const catMap = new Map<string, number>();
+  const monthMap = new Map<string, { income: number; costs: number }>();
+  for (const r of ledgerRows) {
+    const t = r.amount * r.qty;
+    const ym = r.entryDate.slice(0, 7);
+    const mm = monthMap.get(ym) ?? { income: 0, costs: 0 };
+    if (r.type === "income") {
+      income += t;
+      mm.income += t;
+    } else {
+      costs += t;
+      mm.costs += t;
+      const cat = r.category?.trim() || "სხვა";
+      catMap.set(cat, (catMap.get(cat) ?? 0) + t);
+    }
+    monthMap.set(ym, mm);
+  }
+
+  const operational = opRows.reduce((s, o) => s + o.amount, 0);
+  const dayProfit = income - costs;
+  const tax = (income * taxPct) / 100;
+  const distributable = dayProfit - operational - tax;
+
+  // events per month (non-cancelled)
+  const evMonth = new Map<string, number>();
+  let events = 0;
+  for (const b of bookingRows) {
+    if (b.status === "cancelled") continue;
+    events += 1;
+    const ym = b.eventDate.slice(0, 7);
+    evMonth.set(ym, (evMonth.get(ym) ?? 0) + 1);
+  }
+
+  const advByPartner = new Map(advances.map((a) => [a.id, a.remaining]));
+
+  const months = [...monthMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([ym, m]) => {
+      const [y, mo] = ym.split("-").map(Number);
+      const profit = m.income - m.costs;
+      return {
+        label: `${KA_MONTHS[mo - 1]} ${String(y).slice(2)}`,
+        income: m.income,
+        costs: m.costs,
+        profit,
+        events: evMonth.get(ym) ?? 0,
+        margin: m.income > 0 ? profit / m.income : 0,
+      };
+    });
+
+  return {
+    income,
+    costs,
+    dayProfit,
+    operational,
+    tax,
+    distributable,
+    margin: income > 0 ? dayProfit / income : 0,
+    events,
+    avgProfit: events > 0 ? dayProfit / events : 0,
+    partners: partnersData.partners.map((p) => ({
+      id: p.id,
+      name: p.name,
+      sharePct: p.sharePct,
+      allocated: p.allocated,
+      drawn: p.drawn,
+      advanceRemaining: advByPartner.get(p.id) ?? 0,
+    })),
+    debts: debtRows.filter((d) => d.remaining > 0).map((d) => ({ name: d.name, remaining: d.remaining })),
+    categories: [...catMap.entries()]
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total),
+    months,
+  };
+}
+
 // ---------- general debts (recovered from profit) ----------
 
 export type DebtRepayment = {
