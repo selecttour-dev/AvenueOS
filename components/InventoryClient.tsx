@@ -21,6 +21,7 @@ import {
 } from "@/lib/menu-shared";
 import { gel } from "@/lib/format";
 import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
+import { useConfirm } from "@/components/Modal";
 import { Package2, CircleDollarSign } from "lucide-react";
 
 type OrderRow = { dishId: number; portions: number };
@@ -282,6 +283,7 @@ function StockTab({ items }: { items: InventoryItem[] }) {
 }
 
 function ItemRow({ item }: { item: InventoryItem }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [qty, setQty] = useState(String(item.quantity));
   const [price, setPrice] = useState(String(item.unitPrice));
@@ -377,8 +379,8 @@ function ItemRow({ item }: { item: InventoryItem }) {
           <button
             className="btn btn-danger !px-2.5 !py-1.5"
             disabled={pending}
-            onClick={() => {
-              if (confirm(`წავშალო „${item.name}"?`))
+            onClick={async () => {
+              if (await confirm({ title: `წავშალო „${item.name}"?`, confirmLabel: "წაშლა", tone: "danger" }))
                 startTransition(() => deleteInventoryItem(item.id));
             }}
           >

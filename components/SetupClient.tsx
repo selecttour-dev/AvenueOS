@@ -23,6 +23,7 @@ import {
 import type { SetupBudget, SetupItem } from "@/lib/queries";
 import { gel, fmtDateShort, todayISO } from "@/lib/format";
 import { PageHeader, Section, StatCard, EmptyState } from "@/components/ui";
+import { useConfirm } from "@/components/Modal";
 
 export default function SetupClient({
   venueName,
@@ -274,6 +275,7 @@ function SetupRow({
   pending: boolean;
   startTransition: (cb: () => void) => void;
 }) {
+  const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState({
     name: it.name,
@@ -365,8 +367,15 @@ function SetupRow({
           <button
             className="btn btn-danger !py-1.5 !text-sm"
             disabled={pending}
-            onClick={() => {
-              if (confirm(`ნამდვილად წავშალო „${it.name}" (${gel(it.amount)})?`))
+            onClick={async () => {
+              if (
+                await confirm({
+                  title: `წავშალო „${it.name}"?`,
+                  message: gel(it.amount),
+                  confirmLabel: "წაშლა",
+                  tone: "danger",
+                })
+              )
                 startTransition(() => deleteSetupItem(it.id));
             }}
           >

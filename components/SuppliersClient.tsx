@@ -22,6 +22,7 @@ import {
 import type { SupplierRow, PurchaseRow } from "@/lib/queries";
 import { gel, fmtDateShort, todayISO } from "@/lib/format";
 import { PageHeader, Section, StatCard, EmptyState } from "@/components/ui";
+import { useConfirm } from "@/components/Modal";
 
 const PURCHASE_STATUS: Record<string, { label: string; bg: string; fg: string }> = {
   paid: { label: "გადახდილი", bg: "var(--green-soft)", fg: "var(--green)" },
@@ -178,6 +179,7 @@ function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
 }
 
 function SupplierRowView({ s }: { s: SupplierRow }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   return (
     <tr style={s.active ? undefined : { opacity: 0.5 }}>
@@ -214,8 +216,9 @@ function SupplierRowView({ s }: { s: SupplierRow }) {
             className="btn btn-danger !px-2.5 !py-1.5"
             disabled={pending || s.purchaseCount > 0}
             title={s.purchaseCount > 0 ? "ჯერ შესყიდვები წაშალე" : "წაშლა"}
-            onClick={() => {
-              if (confirm(`წავშალო „${s.name}"?`)) startTransition(() => deleteSupplier(s.id));
+            onClick={async () => {
+              if (await confirm({ title: `წავშალო „${s.name}"?`, confirmLabel: "წაშლა", tone: "danger" }))
+                startTransition(() => deleteSupplier(s.id));
             }}
           >
             <Trash2 size={15} />
@@ -319,6 +322,7 @@ function PurchasesTab({ suppliers, purchases }: { suppliers: SupplierRow[]; purc
 }
 
 function PurchaseRowView({ p }: { p: PurchaseRow }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [paid, setPaid] = useState(String(p.paid));
   const debt = Math.max(p.total - p.paid, 0);
@@ -366,8 +370,9 @@ function PurchaseRowView({ p }: { p: PurchaseRow }) {
           <button
             className="btn btn-danger !px-2.5 !py-1.5"
             disabled={pending}
-            onClick={() => {
-              if (confirm("წავშალო შესყიდვა?")) startTransition(() => deletePurchase(p.id));
+            onClick={async () => {
+              if (await confirm({ title: "წავშალო შესყიდვა?", confirmLabel: "წაშლა", tone: "danger" }))
+                startTransition(() => deletePurchase(p.id));
             }}
           >
             <Trash2 size={15} />

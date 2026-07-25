@@ -43,6 +43,7 @@ import { addAdvanceRepayment, addDebtRepayment } from "@/lib/actions";
 import { EXPENSE_CATEGORIES } from "@/lib/booking-shared";
 import { gel, fmtDate, monthNameKa, todayISO } from "@/lib/format";
 import { PageHeader, Section, StatCard, EmptyState } from "@/components/ui";
+import { useConfirm } from "@/components/Modal";
 
 const TYPE_LABELS: Record<string, string> = {
   income: "შემოსავალი",
@@ -571,6 +572,7 @@ function EntriesPanel({ day, locked }: { day: RegisterDay; locked: boolean }) {
 }
 
 function EntryRow({ e, locked }: { e: RegisterDay["entries"][number]; locked: boolean }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [cat, setCat] = useState(e.category ?? "");
@@ -651,8 +653,9 @@ function EntryRow({ e, locked }: { e: RegisterDay["entries"][number]; locked: bo
                 <button
                   className="btn btn-ghost !px-2 !py-1.5"
                   disabled={pending}
-                  onClick={() => {
-                    if (confirm("წავშალო ჩანაწერი?")) startTransition(() => deleteLedgerEntry(e.id));
+                  onClick={async () => {
+                    if (await confirm({ title: "წავშალო ჩანაწერი?", confirmLabel: "წაშლა", tone: "danger" }))
+                      startTransition(() => deleteLedgerEntry(e.id));
                   }}
                 >
                   <Trash2 size={14} />
@@ -871,6 +874,7 @@ function StaffTab({ staff }: { staff: StaffMember[] }) {
 }
 
 function StaffRow({ s }: { s: StaffMember }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [rate, setRate] = useState(String(s.dailyRate));
 
