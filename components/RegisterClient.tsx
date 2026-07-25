@@ -918,8 +918,8 @@ function StaffRow({ s }: { s: StaffMember }) {
           <button
             className="btn btn-danger !px-2.5 !py-1.5"
             disabled={pending}
-            onClick={() => {
-              if (confirm(`წავშალო „${s.name}"?`))
+            onClick={async () => {
+              if (await confirm({ title: `წავშალო „${s.name}"?`, confirmLabel: "წაშლა", tone: "danger" }))
                 startTransition(() => deleteStaff(s.id));
             }}
           >

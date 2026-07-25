@@ -61,6 +61,7 @@ import {
 } from "@/lib/menu-shared";
 import { gel } from "@/lib/format";
 import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
+import { useConfirm } from "@/components/Modal";
 
 type Props = {
   ingredients: MenuIngredient[];
@@ -461,6 +462,7 @@ function IngredientsTab({
 }
 
 function IngredientRow({ ing, used }: { ing: MenuIngredient; used: number }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [price, setPrice] = useState(String(ing.pricePerUnit));
   const [waste, setWaste] = useState(String(ing.wastePct));
@@ -512,8 +514,8 @@ function IngredientRow({ ing, used }: { ing: MenuIngredient; used: number }) {
             className="btn btn-danger !px-2.5 !py-1.5"
             title={used > 0 ? "ჯერ ამოიღე კერძებიდან" : "წაშლა"}
             disabled={pending || used > 0}
-            onClick={() => {
-              if (confirm(`წავშალო „${ing.name}"?`))
+            onClick={async () => {
+              if (await confirm({ title: `წავშალო „${ing.name}"?`, confirmLabel: "წაშლა", tone: "danger" }))
                 startTransition(() => deleteIngredient(ing.id));
             }}
           >
@@ -546,6 +548,7 @@ function DishesTab({
   targetPct: number;
   goToIngredients: () => void;
 }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [typeFilter, setTypeFilter] = useState<number | "all">("all");
   const [catFilter, setCatFilter] = useState<number | "all">("all");
@@ -622,8 +625,8 @@ function DishesTab({
             onClick={() => setCatFilter(c.id)}
             onDelete={
               (dishCountByCat.get(c.id) ?? 0) === 0
-                ? () => {
-                    if (confirm(`წავშალო კატეგორია „${c.name}"?`)) {
+                ? async () => {
+                    if (await confirm({ title: `წავშალო კატეგორია „${c.name}"?`, confirmLabel: "წაშლა", tone: "danger" })) {
                       if (catFilter === c.id) setCatFilter("all");
                       startTransition(() => deleteDishCategory(c.id));
                     }
@@ -857,6 +860,7 @@ function MenuTypeBar({
   selected: number | "all";
   onSelect: (v: number | "all") => void;
 }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -962,8 +966,8 @@ function MenuTypeBar({
             className="badge cursor-pointer"
             style={{ background: "var(--red-soft)", color: "var(--red)" }}
             disabled={pending}
-            onClick={() => {
-              if (confirm("წავშალო ეს მენიუს ტიპი?")) {
+            onClick={async () => {
+              if (await confirm({ title: "წავშალო ეს მენიუს ტიპი?", confirmLabel: "წაშლა", tone: "danger" })) {
                 onSelect("all");
                 startTransition(() => deleteMenuType(selected));
               }
@@ -995,6 +999,7 @@ function DishCard({
   inventoryItems: InventoryItem[];
   targetPct: number;
 }) {
+  const confirm = useConfirm();
   const [open, setOpen] = useState(defaultOpen ?? false);
   const [pending, startTransition] = useTransition();
   const [sellPrice, setSellPrice] = useState(String(dish.sellPrice || ""));
@@ -1129,8 +1134,8 @@ function DishCard({
             className="btn btn-danger !px-2.5 !py-1.5"
             title="კერძის წაშლა"
             disabled={pending}
-            onClick={() => {
-              if (confirm(`წავშალო „${dish.name}"?`))
+            onClick={async () => {
+              if (await confirm({ title: `წავშალო „${dish.name}"?`, confirmLabel: "წაშლა", tone: "danger" }))
                 startTransition(() => deleteDish(dish.id));
             }}
           >
@@ -1777,6 +1782,7 @@ function PackageCard({
   dishesById: Map<number, MenuDish>;
   ingredientsById: Map<number, MenuIngredient>;
 }) {
+  const confirm = useConfirm();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [price, setPrice] = useState(String(pkg.pricePerGuest || ""));
@@ -1846,9 +1852,9 @@ function PackageCard({
           className="btn btn-danger !px-2.5 !py-1.5"
           title="პაკეტის წაშლა"
           disabled={pending}
-          onClick={(e) => {
+          onClick={async (e) => {
             e.stopPropagation();
-            if (confirm(`წავშალო პაკეტი „${pkg.name}“?`))
+            if (await confirm({ title: `წავშალო პაკეტი „${pkg.name}“?`, confirmLabel: "წაშლა", tone: "danger" }))
               startTransition(() => deletePackage(pkg.id));
           }}
         >

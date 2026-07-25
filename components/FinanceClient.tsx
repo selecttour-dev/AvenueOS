@@ -41,6 +41,7 @@ import type {
 } from "@/lib/queries";
 import { gel, fmtDateShort, todayISO } from "@/lib/format";
 import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
+import { useConfirm } from "@/components/Modal";
 import { Percent } from "lucide-react";
 
 export default function FinanceClient({
@@ -279,6 +280,7 @@ function OperationalSection({
 }
 
 function OpRow({ o }: { o: OperationalExpenseRow }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [amount, setAmount] = useState(String(o.amount));
 
@@ -307,8 +309,8 @@ function OpRow({ o }: { o: OperationalExpenseRow }) {
           <button
             className="btn btn-danger !px-2.5 !py-1.5"
             disabled={pending}
-            onClick={() => {
-              if (confirm(`წავშალო „${o.name}"?`))
+            onClick={async () => {
+              if (await confirm({ title: `წავშალო „${o.name}"?`, confirmLabel: "წაშლა", tone: "danger" }))
                 startTransition(() => deleteOperationalExpense(o.id));
             }}
           >
@@ -425,6 +427,7 @@ function FixedCostsSection({
 }
 
 function FixedCostRowView({ fc, share }: { fc: FixedCostRow; share: number }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [amount, setAmount] = useState(String(fc.monthlyAmount));
 
@@ -491,8 +494,8 @@ function FixedCostRowView({ fc, share }: { fc: FixedCostRow; share: number }) {
           <button
             className="btn btn-danger !px-2.5 !py-1.5"
             disabled={pending}
-            onClick={() => {
-              if (confirm(`წავშალო „${fc.name}"?`))
+            onClick={async () => {
+              if (await confirm({ title: `წავშალო „${fc.name}"?`, confirmLabel: "წაშლა", tone: "danger" }))
                 startTransition(() => deleteFixedCost(fc.id));
             }}
           >
@@ -516,6 +519,7 @@ function PartnersTab({
   debtList: DebtRow[];
 }) {
   const { partners, draws, totals } = data;
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [drawForm, setDrawForm] = useState({
     partnerId: partners[0] ? String(partners[0].id) : "",
@@ -654,8 +658,8 @@ function PartnersTab({
                         <button
                           className="btn btn-danger !px-2.5 !py-1.5"
                           disabled={pending}
-                          onClick={() => {
-                            if (confirm("წავშალო გატანა?"))
+                          onClick={async () => {
+                            if (await confirm({ title: "წავშალო გატანა?", confirmLabel: "წაშლა", tone: "danger" }))
                               startTransition(() => deletePartnerDraw(d.id));
                           }}
                         >
@@ -891,6 +895,7 @@ function AdvanceCard({
   pending: boolean;
   startTransition: (cb: () => void) => void;
 }) {
+  const confirm = useConfirm();
   const [amount, setAmount] = useState(String(a.advance));
   const pct = a.advance > 0 ? Math.min((a.repaid / a.advance) * 100, 100) : 0;
 
@@ -944,8 +949,9 @@ function AdvanceCard({
                 <button
                   className="btn btn-danger !px-1.5 !py-1"
                   disabled={pending}
-                  onClick={() => {
-                    if (confirm("წავშალო ეს გაქვითვა?")) startTransition(() => deleteAdvanceRepayment(r.id));
+                  onClick={async () => {
+                    if (await confirm({ title: "წავშალო ეს გაქვითვა?", confirmLabel: "წაშლა", tone: "danger" }))
+                      startTransition(() => deleteAdvanceRepayment(r.id));
                   }}
                 >
                   <Trash2 size={13} />
@@ -1087,6 +1093,7 @@ function DebtCard({
   pending: boolean;
   startTransition: (cb: () => void) => void;
 }) {
+  const confirm = useConfirm();
   const [amount, setAmount] = useState(String(d.amount));
   const pct = d.amount > 0 ? Math.min((d.repaid / d.amount) * 100, 100) : 0;
 
@@ -1104,8 +1111,9 @@ function DebtCard({
           <button
             className="btn btn-danger !px-2 !py-1.5"
             disabled={pending}
-            onClick={() => {
-              if (confirm(`წავშალო ვალი „${d.name}"?`)) startTransition(() => deleteDebt(d.id));
+            onClick={async () => {
+              if (await confirm({ title: `წავშალო ვალი „${d.name}"?`, confirmLabel: "წაშლა", tone: "danger" }))
+                startTransition(() => deleteDebt(d.id));
             }}
           >
             <Trash2 size={14} />
@@ -1149,8 +1157,9 @@ function DebtCard({
                 <button
                   className="btn btn-danger !px-1.5 !py-1"
                   disabled={pending}
-                  onClick={() => {
-                    if (confirm("წავშალო ეს გაქვითვა?")) startTransition(() => deleteDebtRepayment(r.id));
+                  onClick={async () => {
+                    if (await confirm({ title: "წავშალო ეს გაქვითვა?", confirmLabel: "წაშლა", tone: "danger" }))
+                      startTransition(() => deleteDebtRepayment(r.id));
                   }}
                 >
                   <Trash2 size={13} />

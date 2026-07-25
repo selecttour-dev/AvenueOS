@@ -28,6 +28,7 @@ import {
   updateVenue,
 } from "@/lib/actions";
 import { PageHeader, Section } from "@/components/ui";
+import { useConfirm } from "@/components/Modal";
 
 type Venue = {
   id: number;
@@ -78,6 +79,7 @@ export default function SettingsClient({
 }
 
 function TelegramSection({ status }: { status: TelegramStatus }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [token, setToken] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -122,8 +124,8 @@ function TelegramSection({ status }: { status: TelegramStatus }) {
                 <button
                   className="btn btn-danger !px-2 !py-1"
                   disabled={pending}
-                  onClick={() => {
-                    if (confirm(`წავშალო ${r.name || "თანამშრომელი"}?`))
+                  onClick={async () => {
+                    if (await confirm({ title: `წავშალო ${r.name || "თანამშრომელი"}?`, confirmLabel: "წაშლა", tone: "danger" }))
                       startTransition(() => removeTelegramRecipient(r.id));
                   }}
                 >
@@ -189,8 +191,8 @@ function TelegramSection({ status }: { status: TelegramStatus }) {
                 <button
                   className="btn btn-ghost !py-1 !text-xs"
                   disabled={pending}
-                  onClick={() => {
-                    if (confirm("გავთიშო კოდი? ყველა შეძლებს დამატებას."))
+                  onClick={async () => {
+                    if (await confirm({ title: "გავთიშო კოდი?", message: "ამის შემდეგ ბმულით ყველა შეძლებს დამატებას.", confirmLabel: "გათიშვა", tone: "danger" }))
                       startTransition(() => disableJoinCode());
                   }}
                 >
@@ -234,8 +236,9 @@ function TelegramSection({ status }: { status: TelegramStatus }) {
             <button
               className="btn btn-danger"
               disabled={pending}
-              onClick={() => {
-                if (confirm("სრულად გავთიშო Telegram?")) startTransition(() => disconnectTelegram());
+              onClick={async () => {
+                if (await confirm({ title: "სრულად გავთიშო Telegram?", confirmLabel: "გათიშვა", tone: "danger" }))
+                  startTransition(() => disconnectTelegram());
               }}
             >
               გათიშვა
@@ -527,6 +530,7 @@ function DuplicateSection({
   venue: Venue;
   otherVenues: { id: number; name: string }[];
 }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [targetId, setTargetId] = useState(
     otherVenues.length === 1 ? String(otherVenues[0].id) : "",
@@ -568,8 +572,15 @@ function DuplicateSection({
         <button
           className="btn btn-primary"
           disabled={pending || !targetId}
-          onClick={() => {
-            if (!confirm(`გადავიტანო „${venue.name}"-ის მონაცემები → „${targetName}"?`))
+          onClick={async () => {
+            if (
+              !(await confirm({
+                title: `გადავიტანო „${venue.name}"-ის მონაცემები?`,
+                message: `დანიშნულება: „${targetName}". არსებული მონაცემები დაემატება.`,
+                confirmLabel: "გადატანა",
+                tone: "primary",
+              }))
+            )
               return;
             startTransition(async () => {
               const res = await duplicateVenueData(Number(targetId));
