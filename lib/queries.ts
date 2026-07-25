@@ -653,6 +653,16 @@ export type BookingDetail = BookingRow & {
   expenses: BookingExpense[];
   // Actual money from the day register for this event's date.
   actual: { income: number; wages: number; expenses: number };
+  // Itemized register rows for that date (whole day, all events).
+  dayEntries: {
+    id: number;
+    type: string;
+    category: string | null;
+    amount: number;
+    qty: number;
+    note: string | null;
+    bookingId: number | null;
+  }[];
   incomeTaxPct: number;
   rentPerGuest: number; // venue default rate, for the rent auto-calc
 };
@@ -698,7 +708,7 @@ export async function getBookingDetail(
     .where(and(eq(bookings.id, id), eq(bookings.venueId, venueId)));
   if (!b) return null;
 
-  const [pays, exps, menu, dayAgg, incomeTaxPct, rentPerGuest] = await Promise.all([
+  const [pays, exps, menu, dayAgg, incomeTaxPct, rentPerGuest, dayEntries] = await Promise.all([
     db
       .select()
       .from(payments)
@@ -731,6 +741,20 @@ export async function getBookingDetail(
       .where(and(eq(ledger.venueId, venueId), eq(ledger.entryDate, b.eventDate))),
     getIncomeTaxPct(venueId),
     getRentPerGuest(venueId),
+    // Itemized register entries for this event's date (whole day).
+    db
+      .select({
+        id: ledger.id,
+        type: ledger.type,
+        category: ledger.category,
+        amount: ledger.amount,
+        qty: ledger.qty,
+        note: ledger.note,
+        bookingId: ledger.bookingId,
+      })
+      .from(ledger)
+      .where(and(eq(ledger.venueId, venueId), eq(ledger.entryDate, b.eventDate)))
+      .orderBy(ledger.type, desc(ledger.amount)),
   ]);
 
   const paidTotal = pays.reduce((s, p) => s + p.amount, 0);
@@ -766,6 +790,7 @@ export async function getBookingDetail(
       wages: dayAgg[0]?.wages ?? 0,
       expenses: dayAgg[0]?.expenses ?? 0,
     },
+    dayEntries,
     incomeTaxPct,
     rentPerGuest,
   };

@@ -275,9 +275,41 @@ export default function BookingDetailClient({
                 strong
               />
             </div>
+            {booking.dayEntries.length > 0 && (
+              <div className="table-wrap mt-4 -mb-1">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>დღის ჩანაწერები ({fmtDate(booking.eventDate)})</th>
+                      <th></th>
+                      <th className="text-right">თანხა</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {booking.dayEntries.map((e) => {
+                      const t = e.amount * e.qty;
+                      const isIncome = e.type === "income";
+                      return (
+                        <tr key={e.id}>
+                          <td className="font-semibold">{e.category || (isIncome ? "შემოსავალი" : "ხარჯი")}</td>
+                          <td className="text-xs" style={{ color: "var(--text-3)" }}>
+                            {isIncome ? "შემოსავალი" : e.type === "wage" ? "ხელფასი" : "ხარჯი"}
+                            {e.note ? ` · ${e.note}` : ""}
+                          </td>
+                          <td className="text-right font-bold" style={{ color: isIncome ? "var(--green)" : "var(--red)" }}>
+                            {isIncome ? "+" : "−"}{gel(t)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
               ეს ციფრები დღის რეესტრიდან მოდის ({fmtDate(booking.eventDate)}) —
-              რეალური ფული, გეგმიურის ნაცვლად.
+              რეალური ფული, გეგმიურის ნაცვლად. თუ იმ დღეს რამდენიმე ივენთია, ჯამი
+              საერთოა.
               {booking.incomeTaxPct === 0 && " საშემოსავლო % ფინანსებში დააყენე."}
             </p>
           </Section>
