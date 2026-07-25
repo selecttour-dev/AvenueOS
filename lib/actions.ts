@@ -1158,7 +1158,7 @@ export async function addSetupItem(input: {
 
 export async function updateSetupItem(
   id: number,
-  input: { name?: string; amount?: number; category?: string; itemDate?: string },
+  input: { name?: string; amount?: number; category?: string; itemDate?: string; note?: string | null },
 ) {
   const venueId = await getActiveVenueId();
   if (!venueId) return;
@@ -1169,6 +1169,7 @@ export async function updateSetupItem(
       ...(input.amount !== undefined ? { amount: Math.max(input.amount, 0) } : {}),
       ...(input.category !== undefined ? { category: input.category.trim() || null } : {}),
       ...(input.itemDate !== undefined ? { itemDate: input.itemDate || null } : {}),
+      ...(input.note !== undefined ? { note: input.note?.trim() || null } : {}),
     })
     .where(and(eq(setupItems.id, id), eq(setupItems.venueId, venueId)));
   revalidatePath("/setup");

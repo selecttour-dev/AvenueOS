@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   Banknote,
   CalendarClock,
+  Check,
   Landmark,
+  Pencil,
   Plus,
   Receipt,
   Rocket,
@@ -81,8 +83,9 @@ export default function SetupClient({
           icon={Receipt}
           items={expenses}
           total={totalSpent}
-          placeholder="მაგ. დეკორი, სამზარეულო, იჯარა"
+          placeholder="მაგ. კარები, მაცივარი"
           totalLabel="სულ გახარჯული"
+          withCategory
         />
       </div>
 
@@ -95,6 +98,21 @@ export default function SetupClient({
   );
 }
 
+const SETUP_CATEGORIES = [
+  "გარემონტება",
+  "ავეჯი",
+  "მუშები",
+  "დეკორი",
+  "ტექნიკა",
+  "ელექტრობა",
+  "სამზარეულო",
+  "სანტექნიკა",
+  "ინვენტარი",
+  "იჯარა",
+  "სესხი",
+  "სხვა",
+];
+
 function ItemSection({
   kind,
   title,
@@ -103,6 +121,7 @@ function ItemSection({
   total,
   placeholder,
   totalLabel,
+  withCategory = false,
 }: {
   kind: "funding" | "expense";
   title: string;
@@ -111,21 +130,54 @@ function ItemSection({
   total: number;
   placeholder: string;
   totalLabel: string;
+  withCategory?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
-  const [form, setForm] = useState({ name: "", amount: "", date: todayISO() });
+  const [form, setForm] = useState({ name: "", amount: "", date: todayISO(), category: SETUP_CATEGORIES[0] });
+
+  // Group by category (expenses only), preserving the category order above.
+  const groups = new Map<string, SetupItem[]>();
+  for (const it of items) {
+    const cat = withCategory ? it.category || "სხვა" : "";
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat)!.push(it);
+  }
+  const orderedCats = withCategory
+    ? [...groups.keys()].sort(
+        (a, b) => (SETUP_CATEGORIES.indexOf(a) + 1 || 99) - (SETUP_CATEGORIES.indexOf(b) + 1 || 99),
+      )
+    : [""];
 
   return (
     <Section title={title} action={<Icon size={18} style={{ color: "var(--text-3)" }} />}>
+      {withCategory && items.length > 0 && (
+        <CategoryBreakdown groups={groups} orderedCats={orderedCats} total={total} />
+      )}
+
       {items.length === 0 ? (
         <EmptyState icon={Icon} title="ცარიელია" text={`დაამატე პირველი ჩანაწერი (${placeholder}).`} />
       ) : (
         <div className="table-wrap -mx-1">
           <table className="table">
             <tbody>
-              {items.map((it) => (
-                <SetupRow key={it.id} it={it} pending={pending} startTransition={startTransition} />
-              ))}
+              {orderedCats.map((cat) => {
+                const rows = groups.get(cat) ?? [];
+                const sub = rows.reduce((s, r) => s + r.amount, 0);
+                return (
+                  <Fragment key={cat || "all"}>
+                    {withCategory && (
+                      <tr style={{ background: "var(--surface-2)" }}>
+                        <td className="font-bold" colSpan={2}>{cat}</td>
+                        <td className="text-right font-bold">{gel(sub)}</td>
+                        <td></td>
+                      </tr>
+                    )}
+                    {rows.map((it) => (
+                      <SetupRow key={it.id} it={it} withCategory={withCategory} pending={pending} startTransition={startTransition} />
+                    ))}
+                  </Fragment>
+                );
+              })}
               <tr style={{ borderTop: "2px solid var(--border)" }}>
                 <td className="font-bold">{totalLabel}</td>
                 <td></td>
@@ -138,10 +190,20 @@ function ItemSection({
       )}
 
       <div className="mt-4 flex flex-wrap items-end gap-2">
-        <div className="min-w-36 flex-1">
+        <div className="min-w-32 flex-1">
           <label className="label">დასახელება</label>
           <input className="input" placeholder={placeholder} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </div>
+        {withCategory && (
+          <div>
+            <label className="label">კატეგორია</label>
+            <select className="select !w-36" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              {SETUP_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="label">თარიღი</label>
           <input type="date" className="input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
@@ -155,8 +217,14 @@ function ItemSection({
           disabled={pending || !form.name.trim()}
           onClick={() =>
             startTransition(async () => {
-              await addSetupItem({ kind, name: form.name, amount: Number(form.amount) || 0, itemDate: form.date });
-              setForm({ name: "", amount: "", date: form.date });
+              await addSetupItem({
+                kind,
+                name: form.name,
+                amount: Number(form.amount) || 0,
+                itemDate: form.date,
+                category: withCategory ? form.category : undefined,
+              });
+              setForm({ ...form, name: "", amount: "" });
             })
           }
         >
@@ -167,56 +235,142 @@ function ItemSection({
   );
 }
 
+function CategoryBreakdown({
+  groups,
+  orderedCats,
+  total,
+}: {
+  groups: Map<string, SetupItem[]>;
+  orderedCats: string[];
+  total: number;
+}) {
+  return (
+    <div className="mb-4 flex flex-col gap-2">
+      {orderedCats.map((cat) => {
+        const sub = (groups.get(cat) ?? []).reduce((s, r) => s + r.amount, 0);
+        const pct = total > 0 ? (sub / total) * 100 : 0;
+        return (
+          <div key={cat} className="flex items-center gap-3">
+            <span className="w-24 shrink-0 truncate text-xs font-semibold" style={{ color: "var(--text-2)" }}>{cat}</span>
+            <div className="h-2.5 flex-1 overflow-hidden rounded-full" style={{ background: "var(--surface-2)" }}>
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--red)" }} />
+            </div>
+            <span className="w-20 shrink-0 text-right text-xs font-bold">{gel(sub)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SetupRow({
   it,
+  withCategory,
   pending,
   startTransition,
 }: {
   it: SetupItem;
+  withCategory: boolean;
   pending: boolean;
   startTransition: (cb: () => void) => void;
 }) {
-  const [amount, setAmount] = useState(String(it.amount));
-  const [name, setName] = useState(it.name);
+  const [editing, setEditing] = useState(false);
+  const [f, setF] = useState({
+    name: it.name,
+    amount: String(it.amount),
+    category: it.category || "სხვა",
+    date: it.itemDate || "",
+    note: it.note || "",
+  });
+
+  const save = () =>
+    startTransition(async () => {
+      await updateSetupItem(it.id, {
+        name: f.name,
+        amount: Number(f.amount) || 0,
+        category: withCategory ? f.category : undefined,
+        itemDate: f.date,
+        note: f.note,
+      });
+      setEditing(false);
+    });
+
+  if (!editing) {
+    return (
+      <tr className="group">
+        <td>
+          <div className="font-semibold">{it.name}</div>
+          {it.note && (
+            <div className="text-xs" style={{ color: "var(--text-3)" }}>{it.note}</div>
+          )}
+        </td>
+        <td className="whitespace-nowrap text-xs" style={{ color: "var(--text-3)" }}>
+          {it.itemDate ? fmtDateShort(it.itemDate) : ""}
+        </td>
+        <td className="text-right font-bold whitespace-nowrap">{gel(it.amount)}</td>
+        <td>
+          <div className="flex justify-end">
+            <button
+              className="btn btn-ghost !px-2 !py-1.5 opacity-40 transition-opacity group-hover:opacity-100"
+              disabled={pending}
+              onClick={() => setEditing(true)}
+              title="რედაქტირება"
+            >
+              <Pencil size={14} />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
 
   return (
-    <tr>
-      <td>
-        <input
-          className="input !border-transparent !bg-transparent !px-1 !py-1 font-semibold hover:!border-[var(--border)] focus:!border-[var(--border)]"
-          value={name}
-          disabled={pending}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => name.trim() && name !== it.name && startTransition(() => updateSetupItem(it.id, { name }))}
-        />
-      </td>
-      <td className="whitespace-nowrap text-xs" style={{ color: "var(--text-3)" }}>
-        {it.itemDate ? fmtDateShort(it.itemDate) : ""}
-      </td>
-      <td className="text-right">
-        <input
-          type="number"
-          className="input !w-28 !py-1.5 text-right"
-          value={amount}
-          disabled={pending}
-          onChange={(e) => setAmount(e.target.value)}
-          onBlur={() => {
-            const v = Number(amount);
-            if (v >= 0 && v !== it.amount) startTransition(() => updateSetupItem(it.id, { amount: v }));
-          }}
-          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-        />
-      </td>
-      <td>
-        <div className="flex justify-end">
+    <tr style={{ background: "var(--surface-2)" }}>
+      <td colSpan={4}>
+        <div className="grid gap-2 py-1 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label className="label">დასახელება</label>
+            <input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          </div>
+          {withCategory && (
+            <div>
+              <label className="label">კატეგორია</label>
+              <select className="select" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
+                {SETUP_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div>
+            <label className="label">თარიღი</label>
+            <input type="date" className="input" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">თანხა ₾</label>
+            <input type="number" className="input" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+          </div>
+          <div className="sm:col-span-2 lg:col-span-4">
+            <label className="label">შენიშვნა / მიმწოდებელი</label>
+            <input className="input" placeholder="მაგ. ვისგან, ინვოისი, დეტალი" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+          </div>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-2 pb-1">
+          <button className="btn btn-primary !py-1.5 !text-sm" disabled={pending || !f.name.trim()} onClick={save}>
+            <Check size={14} /> შენახვა
+          </button>
+          <button className="btn btn-ghost !py-1.5 !text-sm" disabled={pending} onClick={() => setEditing(false)}>
+            გაუქმება
+          </button>
           <button
-            className="btn btn-danger !px-2 !py-1.5"
+            className="btn btn-danger !py-1.5 !text-sm"
             disabled={pending}
             onClick={() => {
-              if (confirm(`წავშალო „${it.name}"?`)) startTransition(() => deleteSetupItem(it.id));
+              if (confirm(`ნამდვილად წავშალო „${it.name}" (${gel(it.amount)})?`))
+                startTransition(() => deleteSetupItem(it.id));
             }}
           >
-            <Trash2 size={14} />
+            <Trash2 size={14} /> წაშლა
           </button>
         </div>
       </td>
