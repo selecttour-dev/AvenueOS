@@ -1391,6 +1391,7 @@ export async function updateBooking(
     pricePerGuest?: number;
     extraCharges?: number;
     discount?: number;
+    rentAmount?: number;
     notes?: string | null;
     requirements?: string | null;
     clientName?: string | null;
@@ -1444,6 +1445,7 @@ export async function updateBooking(
         ? { extraCharges: input.extraCharges }
         : {}),
       ...(input.discount !== undefined ? { discount: input.discount } : {}),
+      ...(input.rentAmount !== undefined ? { rentAmount: Math.max(input.rentAmount, 0) } : {}),
       ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
       ...(input.requirements !== undefined
         ? { requirements: input.requirements?.trim() || null }
@@ -1465,6 +1467,61 @@ export async function updateBooking(
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/");
   return { ok: true };
+}
+
+/** Quick-save the event's rent (landlord payout). */
+export async function saveBookingRent(bookingId: number, amount: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  await db
+    .update(bookings)
+    .set({ rentAmount: Math.max(amount || 0, 0) })
+    .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
+  revalidatePath(`/bookings/${bookingId}`);
+  revalidatePath("/bookings");
+  return { ok: true };
+}
+
+/** Set the per-guest daily rent rate (used to auto-fill event rent). */
+export async function saveRentPerGuest(rate: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  const clamped = Math.max(rate || 0, 0);
+  await db
+    .insert(settings)
+    .values({ venueId, key: "rentPerGuest", value: String(clamped) })
+    .onConflictDoUpdate({ target: [settings.venueId, settings.key], set: { value: String(clamped) } });
+  revalidatePath("/settings");
+  revalidatePath("/bookings", "layout");
+  return { ok: true, rate: clamped };
+}
+
+/** Fill rent = guests × rate for every booking that has no rent set yet.
+ *  `overwrite` re-computes even bookings that already have a rent value. */
+export async function applyRentToAll(overwrite = false) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  const [rateRow] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(and(eq(settings.venueId, venueId), eq(settings.key, "rentPerGuest")));
+  const rate = Number(rateRow?.value) || 0;
+  if (rate <= 0) return { error: "ჯერ დააყენე იჯარა ერთ სტუმარზე" };
+  const rows = await db
+    .select({ id: bookings.id, guestCount: bookings.guestCount, rentAmount: bookings.rentAmount })
+    .from(bookings)
+    .where(eq(bookings.venueId, venueId));
+  let updated = 0;
+  for (const b of rows) {
+    if (!overwrite && b.rentAmount > 0) continue;
+    const rent = b.guestCount * rate;
+    if (rent === b.rentAmount) continue;
+    await db.update(bookings).set({ rentAmount: rent }).where(eq(bookings.id, b.id));
+    updated++;
+  }
+  revalidatePath("/bookings");
+  revalidatePath("/");
+  return { ok: true, updated };
 }
 
 /** Quick-save just the requirements text (from the detail view's own box). */

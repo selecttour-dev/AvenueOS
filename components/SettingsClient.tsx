@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  applyRentToAll,
   connectTelegram,
   disableJoinCode,
   disconnectTelegram,
@@ -20,6 +21,7 @@ import {
   regenerateJoinCode,
   removeTelegramRecipient,
   runSheetSync,
+  saveRentPerGuest,
   saveSheetId,
   sendTestReminder,
   setupTelegramBot,
@@ -46,11 +48,13 @@ export default function SettingsClient({
   otherVenues,
   sheetId,
   telegram,
+  rentPerGuest,
 }: {
   venue: Venue;
   otherVenues: { id: number; name: string }[];
   sheetId: string;
   telegram: TelegramStatus;
+  rentPerGuest: number;
 }) {
   return (
     <>
@@ -58,6 +62,9 @@ export default function SettingsClient({
         title="პარამეტრები"
         subtitle={`ობიექტი: ${venue.name}`}
       />
+      <div className="mb-5">
+        <RentSection rentPerGuest={rentPerGuest} />
+      </div>
       <div className="grid gap-5 lg:grid-cols-2">
         <TelegramSection status={telegram} />
         <SheetSyncSection initialSheetId={sheetId} />
@@ -370,6 +377,76 @@ function SheetSyncSection({ initialSheetId }: { initialSheetId: string }) {
         დღიური რეესტრები და ხარჯების ტაბები არ ისინქრონდება — ისინი აპში იწარმოება.
         {saved && <> ბმული შენახულია.</>}
       </div>
+    </Section>
+  );
+}
+
+function RentSection({ rentPerGuest }: { rentPerGuest: number }) {
+  const [pending, startTransition] = useTransition();
+  const [rate, setRate] = useState(String(rentPerGuest));
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  return (
+    <Section
+      title="იჯარა ერთ სტუმარზე"
+      action={<Building2 size={18} style={{ color: "var(--text-3)" }} />}
+    >
+      <p className="mb-3 text-sm leading-relaxed" style={{ color: "var(--text-2)" }}>
+        დღიური იჯარა ითვლება სტუმრების რაოდენობიდან. აქ დააყენე ტარიფი — ყოველ
+        ღონისძიებაზე იჯარა ავტომატურად შემოგთავაზდება (<b>სტუმრები × ტარიფი</b>),
+        და ცალკე ჩანს „მისაცემი".
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <label className="label">ტარიფი (₾ / სტუმარი)</label>
+          <input
+            type="number"
+            className="input !w-40"
+            placeholder="მაგ. 15"
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+          />
+        </div>
+        <button
+          className="btn btn-primary"
+          disabled={pending}
+          onClick={() =>
+            startTransition(async () => {
+              await saveRentPerGuest(Number(rate) || 0);
+              setMsg({ ok: true, text: "ტარიფი შენახულია ✓" });
+            })
+          }
+        >
+          {pending ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+          შენახვა
+        </button>
+        <button
+          className="btn btn-ghost"
+          disabled={pending}
+          onClick={() =>
+            startTransition(async () => {
+              const r = await applyRentToAll(true);
+              if (r && "updated" in r) setMsg({ ok: true, text: `${r.updated} ღონისძიებას დაეთვალა იჯარა` });
+              else setMsg({ ok: false, text: r?.error ?? "ვერ დაითვალა" });
+            })
+          }
+          title="ყველა არსებულ ღონისძიებას დაუთვლის იჯარას სტუმრების მიხედვით"
+        >
+          ყველას თავიდან დათვლა
+        </button>
+      </div>
+      {msg && (
+        <div
+          className="mt-3 rounded-xl px-4 py-2.5 text-sm font-semibold"
+          style={
+            msg.ok
+              ? { background: "var(--green-soft)", color: "var(--green)" }
+              : { background: "var(--red-soft)", color: "var(--red)" }
+          }
+        >
+          {msg.text}
+        </div>
+      )}
     </Section>
   );
 }

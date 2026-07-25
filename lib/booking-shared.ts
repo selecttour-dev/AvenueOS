@@ -9,6 +9,7 @@ export type BookingRow = {
   pricePerGuest: number;
   extraCharges: number;
   discount: number;
+  rentAmount: number;
   status: string;
   notes: string | null;
   clientName: string | null;

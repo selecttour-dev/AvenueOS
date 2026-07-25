@@ -1,5 +1,6 @@
 import { getActiveVenue, getVenues } from "@/lib/venue";
 import { getSheetId, getTelegramStatus } from "@/lib/actions";
+import { getRentPerGuest } from "@/lib/queries";
 import SettingsClient from "@/components/SettingsClient";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export default async function SettingsPage() {
     getTelegramStatus(),
   ]);
   if (!venue) return null;
+  const rentPerGuest = await getRentPerGuest(venue.id);
   return (
     <SettingsClient
       venue={{
@@ -25,6 +27,7 @@ export default async function SettingsPage() {
         .map((v) => ({ id: v.id, name: v.name }))}
       sheetId={sheetId}
       telegram={telegram}
+      rentPerGuest={rentPerGuest}
     />
   );
 }

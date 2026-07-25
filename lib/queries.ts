@@ -608,6 +608,7 @@ export async function getBookings(venueId: number): Promise<BookingRow[]> {
       pricePerGuest: bookings.pricePerGuest,
       extraCharges: bookings.extraCharges,
       discount: bookings.discount,
+      rentAmount: bookings.rentAmount,
       status: bookings.status,
       notes: bookings.notes,
       clientName: clients.name,
@@ -653,7 +654,18 @@ export type BookingDetail = BookingRow & {
   // Actual money from the day register for this event's date.
   actual: { income: number; wages: number; expenses: number };
   incomeTaxPct: number;
+  rentPerGuest: number; // venue default rate, for the rent auto-calc
 };
+
+/** Daily rent charged per guest (0 = none). Used to auto-fill event rent. */
+export async function getRentPerGuest(venueId: number): Promise<number> {
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(and(eq(settings.venueId, venueId), eq(settings.key, "rentPerGuest")));
+  const n = row ? Number(row.value) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
 
 export async function getBookingDetail(
   venueId: number,
@@ -672,6 +684,7 @@ export async function getBookingDetail(
       pricePerGuest: bookings.pricePerGuest,
       extraCharges: bookings.extraCharges,
       discount: bookings.discount,
+      rentAmount: bookings.rentAmount,
       status: bookings.status,
       notes: bookings.notes,
       requirements: bookings.requirements,
@@ -685,7 +698,7 @@ export async function getBookingDetail(
     .where(and(eq(bookings.id, id), eq(bookings.venueId, venueId)));
   if (!b) return null;
 
-  const [pays, exps, menu, dayAgg, incomeTaxPct] = await Promise.all([
+  const [pays, exps, menu, dayAgg, incomeTaxPct, rentPerGuest] = await Promise.all([
     db
       .select()
       .from(payments)
@@ -717,6 +730,7 @@ export async function getBookingDetail(
       .from(ledger)
       .where(and(eq(ledger.venueId, venueId), eq(ledger.entryDate, b.eventDate))),
     getIncomeTaxPct(venueId),
+    getRentPerGuest(venueId),
   ]);
 
   const paidTotal = pays.reduce((s, p) => s + p.amount, 0);
@@ -753,6 +767,7 @@ export async function getBookingDetail(
       expenses: dayAgg[0]?.expenses ?? 0,
     },
     incomeTaxPct,
+    rentPerGuest,
   };
 }
 

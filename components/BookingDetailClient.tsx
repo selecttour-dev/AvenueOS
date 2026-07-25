@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
+  Building2,
   CircleDollarSign,
   ClipboardList,
   Copy,
@@ -35,6 +36,7 @@ import {
   deleteBookingDish,
   deleteBookingLedgerEntry,
   deletePayment,
+  saveBookingRent,
   saveBookingRequirements,
   setBookingLumpSum,
   setBookingPackage,
@@ -105,7 +107,8 @@ export default function BookingDetailClient({
   const extraIncome = booking.expenses
     .filter((e) => e.type === "income")
     .reduce((s, e) => s + entryTotal(e), 0);
-  const profit = planned + extraIncome - costTotal;
+  const rent = booking.rentAmount;
+  const profit = planned + extraIncome - costTotal - rent;
 
   // Actual money from the day register for this event's date.
   const a = booking.actual;
@@ -196,10 +199,10 @@ export default function BookingDetailClient({
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           icon={CircleDollarSign}
-          label="ღირებულება"
+          label="შემოსავალი"
           value={gel(planned)}
           hint={`${booking.guestCount} სტუმარი × ${gel(booking.pricePerGuest, 2)}`}
           tone="gold"
@@ -212,6 +215,13 @@ export default function BookingDetailClient({
           tone={outstanding > 0 ? "default" : "green"}
         />
         <StatCard
+          icon={Building2}
+          label="იჯარა (მისაცემი)"
+          value={gel(rent)}
+          hint={booking.rentPerGuest > 0 ? `${booking.guestCount} × ${gel(booking.rentPerGuest, 2)}` : "მესაკუთრეს"}
+          tone={rent > 0 ? "red" : "default"}
+        />
+        <StatCard
           icon={Receipt}
           label="ხარჯი"
           value={gel(costTotal)}
@@ -220,12 +230,15 @@ export default function BookingDetailClient({
         />
         <StatCard
           icon={TrendingUp}
-          label="მოგება (გეგმ.)"
+          label="ჩემი მოგება"
           value={gel(profit)}
-          hint="ღირებულება − ხარჯი"
+          hint="შემოსავ. − იჯარა − ხარჯი"
           tone={profit >= 0 ? "green" : "red"}
         />
       </div>
+
+      <RentBox booking={booking} rent={rent} />
+
 
       {hasActual && (
         <div className="mt-6">
@@ -1112,6 +1125,63 @@ function SetPriceBox({
           ✓ მენიუს ფასის ტოლია
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------- Rent (landlord payout) ----------------
+
+function RentBox({ booking, rent }: { booking: BookingDetail; rent: number }) {
+  const [pending, startTransition] = useTransition();
+  const [val, setVal] = useState(String(rent));
+  const suggested = booking.guestCount * booking.rentPerGuest;
+  const income = bookingTotal(booking);
+  const rentN = Number(val) || 0;
+
+  const save = (amount: number) =>
+    startTransition(async () => {
+      setVal(String(amount));
+      await saveBookingRent(booking.id, amount);
+    });
+
+  return (
+    <div
+      className="mt-4 rounded-xl px-4 py-3.5"
+      style={{ background: "var(--surface-2)" }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Building2 size={16} style={{ color: "var(--text-3)" }} />
+          <span className="text-sm font-bold">იჯარა (მესაკუთრეს)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            className="input !w-32"
+            value={val}
+            disabled={pending}
+            onChange={(e) => setVal(e.target.value)}
+            onBlur={() => rentN !== rent && save(rentN)}
+            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+          />
+          <span className="text-sm" style={{ color: "var(--text-3)" }}>₾</span>
+          {booking.rentPerGuest > 0 && suggested !== rentN && (
+            <button
+              className="btn btn-ghost !py-1.5 !text-xs"
+              disabled={pending}
+              onClick={() => save(suggested)}
+              title={`${booking.guestCount} სტუმარი × ${gel(booking.rentPerGuest, 2)}`}
+            >
+              ავტო: {gel(suggested)}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+        <span>შემოსავალი: <b style={{ color: "var(--green)" }}>{gel(income)}</b></span>
+        <span>− მისაცემი (იჯარა): <b style={{ color: "var(--red)" }}>{gel(rentN)}</b></span>
+        <span>= <b>{gel(income - rentN)}</b> (ხარჯამდე)</span>
+      </div>
     </div>
   );
 }

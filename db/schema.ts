@@ -114,6 +114,8 @@ export const bookings = pgTable(
     pricePerGuest: money("price_per_guest").notNull().default(0),
     extraCharges: money("extra_charges").notNull().default(0),
     discount: money("discount").notNull().default(0),
+    // Rent paid to the landlord for this event (a payout, headcount-based).
+    rentAmount: money("rent_amount").notNull().default(0),
     status: bookingStatusEnum("status").notNull().default("inquiry"),
     notes: text("notes"),
     // What the client wants for this event (menu wishes, decor, timing…).
