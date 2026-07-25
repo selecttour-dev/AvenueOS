@@ -24,6 +24,7 @@
   --blue-soft: #e9eef3;
   --shadow-sm: 0 1px 2px rgb(35 34 28 / 0.04);
   --shadow-md: 0 4px 16px -6px rgb(35 34 28 / 0.1);
+  --shadow-lg: 0 24px 60px -18px rgb(35 34 28 / 0.28);
   --radius: 12px;
 }
 
@@ -36,7 +37,21 @@ body {
   color: var(--text);
   font-feature-settings: "case" off;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   overflow-x: hidden; /* off-screen mobile drawer must not add horizontal scroll */
+}
+
+::selection {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+/* Money and counts read as data, not prose — align the digits everywhere. */
+.table td,
+.input,
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 /* ---------- primitives ---------- */
@@ -72,9 +87,20 @@ body {
     box-shadow 0.12s ease;
   white-space: nowrap;
 }
+.btn:active:not(:disabled) {
+  transform: translateY(0.5px) scale(0.99);
+}
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(45 90 61 / 0.16);
+}
+.btn-sm {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
 }
 
 .btn-primary {
@@ -126,6 +152,25 @@ body {
 .input::placeholder,
 .textarea::placeholder {
   color: var(--text-3);
+}
+.input:disabled,
+.select:disabled,
+.textarea:disabled {
+  background: var(--surface-2);
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+/* Strip the native number-spinner arrows — the value never changes on scroll
+ *  (see GlobalUX) and the steppers only add visual noise to money fields. */
+.input[type="number"]::-webkit-outer-spin-button,
+.input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .label {
@@ -216,4 +261,109 @@ body {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ---------- modal / dialog ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  background: rgb(28 26 20 / 0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: overlay-in 0.16s ease;
+}
+@media (min-width: 640px) {
+  .modal-backdrop {
+    align-items: center;
+    padding: 1.5rem;
+  }
+}
+
+.modal-panel {
+  position: relative;
+  width: 100%;
+  max-width: 32rem;
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+  box-shadow: var(--shadow-lg);
+  animation: sheet-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (min-width: 640px) {
+  .modal-panel {
+    border-radius: 16px;
+    animation: panel-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+.modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.35rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.modal-body {
+  padding: 1.35rem;
+}
+.modal-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 1rem 1.35rem;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2rem;
+  width: 2rem;
+  border-radius: 8px;
+  color: var(--text-3);
+  transition: background 0.12s ease, color 0.12s ease;
+  cursor: pointer;
+}
+.modal-close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

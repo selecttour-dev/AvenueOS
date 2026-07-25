@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -27,6 +27,7 @@ import {
   StatusBadge,
   EVENT_TYPE_LABELS,
 } from "@/components/ui";
+import { Modal } from "@/components/Modal";
 
 const STATUS_FILTERS = [
   { key: "upcoming", label: "მომავალი" },
@@ -114,9 +115,8 @@ export default function BookingsClient({ bookings }: { bookings: BookingRow[] })
         title="ჯავშნები"
         subtitle="ყოველ ჯავშანზე — გადახდები, ხარჯები და მოგება ერთ ადგილას"
         action={
-          <button className="btn btn-primary" onClick={() => (showForm ? setShowForm(false) : openCreate())}>
-            {showForm ? <X size={16} /> : <Plus size={16} />}
-            {showForm ? "დახურვა" : "ახალი ჯავშანი"}
+          <button className="btn btn-primary" onClick={() => openCreate()}>
+            <Plus size={16} /> ახალი ჯავშანი
           </button>
         }
       />
@@ -132,15 +132,12 @@ export default function BookingsClient({ bookings }: { bookings: BookingRow[] })
         />
       </div>
 
-      {showForm && (
-        <div className="mb-6">
-          <NewBookingForm
-            bookings={bookings}
-            initialDate={formDate}
-            onDone={() => setShowForm(false)}
-          />
-        </div>
-      )}
+      <NewBookingForm
+        open={showForm}
+        bookings={bookings}
+        initialDate={formDate}
+        onDone={() => setShowForm(false)}
+      />
 
       {/* view toggle */}
       <div className="mb-4 flex items-center gap-2">
@@ -532,11 +529,24 @@ function CalendarView({
 
 // ---------------- New booking form (with conflict guard) ----------------
 
+const EMPTY_BOOKING_FORM = {
+  title: "",
+  eventType: "wedding",
+  eventDate: "",
+  guestCount: "",
+  pricePerGuest: "",
+  clientName: "",
+  clientPhone: "",
+  notes: "",
+};
+
 function NewBookingForm({
+  open,
   bookings,
   initialDate,
   onDone,
 }: {
+  open: boolean;
   bookings: BookingRow[];
   initialDate: string;
   onDone: () => void;
@@ -544,16 +554,15 @@ function NewBookingForm({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    title: "",
-    eventType: "wedding",
-    eventDate: initialDate,
-    guestCount: "",
-    pricePerGuest: "",
-    clientName: "",
-    clientPhone: "",
-    notes: "",
-  });
+  const [form, setForm] = useState({ ...EMPTY_BOOKING_FORM });
+
+  // Fresh form each time the dialog opens (carrying the clicked calendar day).
+  useEffect(() => {
+    if (open) {
+      setForm({ ...EMPTY_BOOKING_FORM, eventDate: initialDate });
+      setError(null);
+    }
+  }, [open, initialDate]);
 
   const set =
     (k: keyof typeof form) =>
@@ -566,10 +575,42 @@ function NewBookingForm({
     ? bookings.filter((b) => b.eventDate === form.eventDate && b.status !== "cancelled")
     : [];
 
+  const submit = () =>
+    startTransition(async () => {
+      const res = await createBooking({
+        title: form.title,
+        eventType: form.eventType,
+        eventDate: form.eventDate,
+        guestCount: Number(form.guestCount) || 0,
+        pricePerGuest: Number(form.pricePerGuest) || 0,
+        clientName: form.clientName,
+        clientPhone: form.clientPhone,
+        notes: form.notes,
+      });
+      if (res?.error) setError(res.error);
+      else {
+        onDone();
+        router.refresh();
+      }
+    });
+
   return (
-    <Section title="ახალი ჯავშანი">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="lg:col-span-1">
+    <Modal
+      open={open}
+      onClose={onDone}
+      title="ახალი ჯავშანი"
+      subtitle="ივენთის ბარათი შემდეგ გვერდზე იხსნება — გადახდები, ხარჯები, მენიუ."
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onDone}>გაუქმება</button>
+          <button className="btn btn-primary" disabled={pending} onClick={submit}>
+            <Plus size={16} /> {pending ? "ინახება…" : "შენახვა"}
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
           <label className="label">ივენთის სახელი *</label>
           <input className="input" placeholder="მაგ. ნიკა & თეკლას ქორწილი" value={form.title} onChange={set("title")} />
         </div>
@@ -593,8 +634,8 @@ function NewBookingForm({
           <label className="label">ფასი სტუმარზე (₾)</label>
           <input type="number" className="input" placeholder="85" value={form.pricePerGuest} onChange={set("pricePerGuest")} />
         </div>
-        <div className="flex items-end">
-          <div className="w-full rounded-xl px-4 py-2.5 text-sm font-bold" style={{ background: "var(--gold-soft)", color: "var(--gold)" }}>
+        <div className="sm:col-span-2">
+          <div className="rounded-xl px-4 py-2.5 text-sm font-bold" style={{ background: "var(--gold-soft)", color: "var(--gold)" }}>
             სავარაუდო ღირებულება: {gel(estimate)}
           </div>
         </div>
@@ -606,7 +647,7 @@ function NewBookingForm({
           <label className="label">ტელეფონი</label>
           <input className="input" placeholder="5xx xx xx xx" value={form.clientPhone} onChange={set("clientPhone")} />
         </div>
-        <div>
+        <div className="sm:col-span-2">
           <label className="label">შენიშვნა</label>
           <input className="input" value={form.notes} onChange={set("notes")} />
         </div>
@@ -634,34 +675,6 @@ function NewBookingForm({
       {error && (
         <p className="mt-3 text-sm font-semibold" style={{ color: "var(--red)" }}>{error}</p>
       )}
-      <div className="mt-5 flex gap-2">
-        <button
-          className="btn btn-primary"
-          disabled={pending}
-          onClick={() =>
-            startTransition(async () => {
-              const res = await createBooking({
-                title: form.title,
-                eventType: form.eventType,
-                eventDate: form.eventDate,
-                guestCount: Number(form.guestCount) || 0,
-                pricePerGuest: Number(form.pricePerGuest) || 0,
-                clientName: form.clientName,
-                clientPhone: form.clientPhone,
-                notes: form.notes,
-              });
-              if (res?.error) setError(res.error);
-              else {
-                onDone();
-                router.refresh();
-              }
-            })
-          }
-        >
-          <Plus size={16} /> შენახვა
-        </button>
-        <button className="btn btn-ghost" onClick={onDone}>გაუქმება</button>
-      </div>
-    </Section>
+    </Modal>
   );
 }

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import { ConfirmProvider } from "@/components/Modal";
 import { getActiveVenueId, getVenues } from "@/lib/venue";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ export default async function AppLayout({
         activeVenueId={activeVenueId}
       />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-        {children}
+        <ConfirmProvider>{children}</ConfirmProvider>
       </main>
     </div>
   );

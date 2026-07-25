@@ -69,6 +69,7 @@ import {
 import type { BookingDetail } from "@/lib/queries";
 import { gel, fmtDate, fmtDateShort, todayISO } from "@/lib/format";
 import { PageHeader, Section, StatCard, StatusBadge, EmptyState, EVENT_TYPE_LABELS } from "@/components/ui";
+import { useConfirm } from "@/components/Modal";
 
 export default function BookingDetailClient({
   booking,
@@ -88,6 +89,7 @@ export default function BookingDetailClient({
   inventoryItems: InventoryItem[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
 
   const planned = bookingTotal(booking);
@@ -148,8 +150,15 @@ export default function BookingDetailClient({
             <button
               className="btn btn-danger"
               disabled={pending}
-              onClick={() => {
-                if (confirm(`წავშალო ჯავშანი „${booking.title}"?`))
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `წავშალო ჯავშანი „${booking.title}"?`,
+                    message: "ჯავშანთან დაკავშირებული გადახდები და ხარჯებიც წაიშლება. ამის დაბრუნება ვეღარ მოხერხდება.",
+                    confirmLabel: "წაშლა",
+                    tone: "danger",
+                  })
+                )
                   startTransition(async () => {
                     await deleteBooking(booking.id);
                     router.push("/bookings");
@@ -748,6 +757,7 @@ function PackageMenu({
   showCost: boolean;
   onCustomized: () => void;
 }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const pkg = packages.find((p) => p.id === booking.packageId) ?? null;
 
@@ -839,11 +849,15 @@ function PackageMenu({
             <button
               className="btn btn-ghost"
               disabled={pending}
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  confirm(
-                    "პაკეტის კერძები გადმოვა ინდივიდუალურ მენიუში, სადაც თავისუფლად შეცვლი. გავაგრძელო?",
-                  )
+                  await confirm({
+                    title: "პაკეტის მორგება",
+                    message:
+                      "პაკეტის კერძები გადმოვა ინდივიდუალურ მენიუში, სადაც თავისუფლად შეცვლი. გავაგრძელო?",
+                    confirmLabel: "გაგრძელება",
+                    tone: "primary",
+                  })
                 )
                   startTransition(async () => {
                     await applyPackageToBookingMenu(booking.id, pkg.id);

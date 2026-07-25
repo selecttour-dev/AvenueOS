@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Georgian } from "next/font/google";
 import "./globals.css";
 import ServiceWorker from "@/components/ServiceWorker";
+import GlobalUX from "@/components/GlobalUX";
 
 const noto = Noto_Sans_Georgian({
   subsets: ["georgian", "latin"],
@@ -42,6 +43,7 @@ export default function RootLayout({
     <html lang="ka" className={noto.variable}>
       <body style={{ fontFamily: "var(--font-noto), system-ui, sans-serif" }}>
         {children}
+        <GlobalUX />
         <ServiceWorker />
       </body>
     </html>
