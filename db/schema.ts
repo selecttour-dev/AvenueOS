@@ -507,6 +507,22 @@ export const advanceRepayments = pgTable("advance_repayments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Opening/setup budget for launching a venue: funding sources coming in and
+// setup expenses going out, so the owner sees investment, balance and break-even.
+export const setupItems = pgTable("setup_items", {
+  id: serial("id").primaryKey(),
+  venueId: integer("venue_id")
+    .notNull()
+    .references(() => venues.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(), // 'funding' | 'expense'
+  name: text("name").notNull(),
+  amount: money("amount").notNull().default(0),
+  category: text("category"),
+  itemDate: date("item_date"),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // General debts to recover from profit (inventory bought on credit, loans…).
 export const debts = pgTable("debts", {
   id: serial("id").primaryKey(),

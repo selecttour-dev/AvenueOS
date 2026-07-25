@@ -21,6 +21,7 @@ import {
   debts,
   partnerDraws,
   partners,
+  setupItems,
   packages,
   payments,
   purchases,
@@ -509,6 +510,69 @@ export async function getOverview(venueId: number): Promise<OverviewData> {
       .map(([category, total]) => ({ category, total }))
       .sort((a, b) => b.total - a.total),
     months,
+  };
+}
+
+// ---------- setup / opening budget ----------
+
+export type SetupItem = {
+  id: number;
+  kind: string; // 'funding' | 'expense'
+  name: string;
+  amount: number;
+  category: string | null;
+  itemDate: string | null;
+  note: string | null;
+};
+
+export type SetupBudget = {
+  funding: SetupItem[];
+  expenses: SetupItem[];
+  totalFunding: number;
+  totalSpent: number;
+  balance: number; // funding − spent (money left to spend)
+  expectedMonthlyProfit: number;
+  monthsToBreakEven: number | null;
+};
+
+export async function getSetupBudget(venueId: number): Promise<SetupBudget> {
+  const [rows, mp] = await Promise.all([
+    db
+      .select({
+        id: setupItems.id,
+        kind: setupItems.kind,
+        name: setupItems.name,
+        amount: setupItems.amount,
+        category: setupItems.category,
+        itemDate: setupItems.itemDate,
+        note: setupItems.note,
+      })
+      .from(setupItems)
+      .where(eq(setupItems.venueId, venueId))
+      .orderBy(asc(setupItems.itemDate), asc(setupItems.id)),
+    (async () => {
+      const [r] = await db
+        .select({ value: settings.value })
+        .from(settings)
+        .where(and(eq(settings.venueId, venueId), eq(settings.key, "expectedMonthlyProfit")));
+      return Number(r?.value) || 0;
+    })(),
+  ]);
+
+  const funding = rows.filter((r) => r.kind === "funding");
+  const expenses = rows.filter((r) => r.kind === "expense");
+  const totalFunding = funding.reduce((s, r) => s + r.amount, 0);
+  const totalSpent = expenses.reduce((s, r) => s + r.amount, 0);
+  const monthsToBreakEven = mp > 0 ? totalSpent / mp : null;
+
+  return {
+    funding,
+    expenses,
+    totalFunding,
+    totalSpent,
+    balance: totalFunding - totalSpent,
+    expectedMonthlyProfit: mp,
+    monthsToBreakEven,
   };
 }
 

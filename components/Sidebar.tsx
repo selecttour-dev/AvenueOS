@@ -15,6 +15,7 @@ import {
   Boxes,
   Truck,
   Calculator,
+  Rocket,
   Settings,
   Building2,
   LogOut,
@@ -35,6 +36,7 @@ const NAV = [
   { href: "/inventory", label: "ინვენტარიზაცია", icon: Boxes },
   { href: "/suppliers", label: "მომწოდებლები", icon: Truck },
   { href: "/calc", label: "კალკულაციები", icon: Calculator },
+  { href: "/setup", label: "ახალი ობიექტი", icon: Rocket },
   { href: "/settings", label: "პარამეტრები", icon: Settings },
 ];
 

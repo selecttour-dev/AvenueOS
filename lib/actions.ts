@@ -33,6 +33,7 @@ import {
   purchases,
   services,
   settings,
+  setupItems,
   staff,
   suppliers,
   telegramRecipients,
@@ -1127,6 +1128,66 @@ export async function deleteAdvanceRepayment(id: number) {
   await db.delete(advanceRepayments).where(eq(advanceRepayments.id, id));
   revalidatePath("/finance");
   revalidatePath("/register");
+}
+
+// ---------- setup / opening budget ----------
+
+export async function addSetupItem(input: {
+  kind: "funding" | "expense";
+  name: string;
+  amount: number;
+  category?: string;
+  itemDate?: string;
+  note?: string;
+}) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
+  if (!input.name.trim()) return { error: "დასახელება აუცილებელია" };
+  await db.insert(setupItems).values({
+    venueId,
+    kind: input.kind,
+    name: input.name.trim(),
+    amount: Math.max(input.amount || 0, 0),
+    category: input.category?.trim() || null,
+    itemDate: input.itemDate || null,
+    note: input.note?.trim() || null,
+  });
+  revalidatePath("/setup");
+  return { ok: true };
+}
+
+export async function updateSetupItem(
+  id: number,
+  input: { name?: string; amount?: number; category?: string; itemDate?: string },
+) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .update(setupItems)
+    .set({
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.amount !== undefined ? { amount: Math.max(input.amount, 0) } : {}),
+      ...(input.category !== undefined ? { category: input.category.trim() || null } : {}),
+      ...(input.itemDate !== undefined ? { itemDate: input.itemDate || null } : {}),
+    })
+    .where(and(eq(setupItems.id, id), eq(setupItems.venueId, venueId)));
+  revalidatePath("/setup");
+}
+
+export async function deleteSetupItem(id: number) {
+  await db.delete(setupItems).where(eq(setupItems.id, id));
+  revalidatePath("/setup");
+}
+
+export async function saveExpectedMonthlyProfit(amount: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  const v = String(Math.max(amount || 0, 0));
+  await db
+    .insert(settings)
+    .values({ venueId, key: "expectedMonthlyProfit", value: v })
+    .onConflictDoUpdate({ target: [settings.venueId, settings.key], set: { value: v } });
+  revalidatePath("/setup");
 }
 
 // ---------- general debts ----------
