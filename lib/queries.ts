@@ -802,10 +802,11 @@ export async function getBookingDetail(
         expenses: sql<number>`coalesce(sum(case when ${ledger.type} = 'expense' then ${ledger.amount} * ${ledger.qty} end), 0)::float`,
       })
       .from(ledger)
-      .where(and(eq(ledger.venueId, venueId), eq(ledger.entryDate, b.eventDate))),
+      // Money for THIS event = entries linked to this booking (not just same date).
+      .where(and(eq(ledger.venueId, venueId), eq(ledger.bookingId, id))),
     getIncomeTaxPct(venueId),
     getRentPerGuest(venueId),
-    // Itemized register entries for this event's date (whole day).
+    // Itemized register entries linked to this event.
     db
       .select({
         id: ledger.id,
@@ -817,7 +818,7 @@ export async function getBookingDetail(
         bookingId: ledger.bookingId,
       })
       .from(ledger)
-      .where(and(eq(ledger.venueId, venueId), eq(ledger.entryDate, b.eventDate)))
+      .where(and(eq(ledger.venueId, venueId), eq(ledger.bookingId, id)))
       .orderBy(ledger.type, desc(ledger.amount)),
   ]);
 

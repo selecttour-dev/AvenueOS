@@ -280,7 +280,7 @@ export default function BookingDetailClient({
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>დღის ჩანაწერები ({fmtDate(booking.eventDate)})</th>
+                      <th>ამ ღონისძიების ჩანაწერები</th>
                       <th></th>
                       <th className="text-right">თანხა</th>
                     </tr>
@@ -307,9 +307,9 @@ export default function BookingDetailClient({
               </div>
             )}
             <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
-              ეს ციფრები დღის რეესტრიდან მოდის ({fmtDate(booking.eventDate)}) —
-              რეალური ფული, გეგმიურის ნაცვლად. თუ იმ დღეს რამდენიმე ივენთია, ჯამი
-              საერთოა.
+              ეს ციფრები ამ ღონისძიებაზე მიბმული ჩანაწერებია (დღის რეესტრიდან) —
+              რეალური ფული, გეგმიურის ნაცვლად. ბე/გადახდა სხვა დღეს რომ შემოვიდეს,
+              მაინც აქ ჩანს.
               {booking.incomeTaxPct === 0 && " საშემოსავლო % ფინანსებში დააყენე."}
             </p>
           </Section>
