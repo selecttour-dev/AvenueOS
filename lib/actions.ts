@@ -46,6 +46,24 @@ import {
 } from "./sheet-sync";
 import { getRecipients, resolveTelegramChats, sendTelegram } from "./reminders";
 
+/** Guard for insert-attach actions: confirm every referenced parent row
+ *  belongs to `venueId` before linking child rows to them. Each entry is a
+ *  [venue-scoped table, id] pair. Returns false if any row is missing/foreign. */
+async function ownsAll(
+  venueId: number,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  checks: Array<[any, number]>,
+): Promise<boolean> {
+  for (const [table, id] of checks) {
+    const [row] = await db
+      .select({ id: table.id })
+      .from(table)
+      .where(and(eq(table.id, id), eq(table.venueId, venueId)));
+    if (!row) return false;
+  }
+  return true;
+}
+
 // ---------- venues ----------
 
 export async function setActiveVenue(venueId: number) {
@@ -703,7 +721,9 @@ export async function addPackageDish(
   dishId: number,
   qtyPerGuest: number,
 ) {
-  if (!qtyPerGuest || qtyPerGuest <= 0) return;
+  const venueId = await getActiveVenueId();
+  if (!venueId || !qtyPerGuest || qtyPerGuest <= 0) return;
+  if (!(await ownsAll(venueId, [[packages, packageId], [dishes, dishId]]))) return;
   await db.insert(packageDishes).values({ packageId, dishId, qtyPerGuest });
   revalidatePath("/calc");
 }
@@ -763,6 +783,9 @@ export async function addBookingDish(
   qty: number,
   perGuest = false, // dishes are shared by default — 1 dish → 1 plate, not ×guests
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  if (!(await ownsAll(venueId, [[bookings, bookingId], [dishes, dishId]]))) return;
   await db.insert(bookingDishes).values({
     bookingId,
     dishId,
@@ -1415,7 +1438,9 @@ export async function addDishInventory(
   itemId: number,
   qtyPerPortion: number,
 ) {
-  if (!qtyPerPortion || qtyPerPortion <= 0) return;
+  const venueId = await getActiveVenueId();
+  if (!venueId || !qtyPerPortion || qtyPerPortion <= 0) return;
+  if (!(await ownsAll(venueId, [[dishes, dishId], [inventoryItems, itemId]]))) return;
   await db.insert(dishInventory).values({ dishId, itemId, qtyPerPortion });
   revalidatePath("/calc");
   revalidatePath("/inventory");
@@ -2238,7 +2263,9 @@ export async function addRecipeLine(
   ingredientId: number,
   qty: number,
 ) {
-  if (!qty || qty <= 0) return;
+  const venueId = await getActiveVenueId();
+  if (!venueId || !qty || qty <= 0) return;
+  if (!(await ownsAll(venueId, [[dishes, dishId], [ingredients, ingredientId]]))) return;
   await db.insert(dishIngredients).values({ dishId, ingredientId, qty });
   revalidatePath("/calc");
 }
