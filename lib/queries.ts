@@ -37,6 +37,7 @@ import {
 } from "./forecast-shared";
 import { todayISO } from "./format";
 import { bookingTotal, type BookingRow } from "./booking-shared";
+import { profitSummary, allocateToPartner } from "./finance-core";
 import type {
   InventoryItem,
   MenuCategory,
@@ -288,9 +289,8 @@ export async function getPartnersData(venueId: number): Promise<PartnersData> {
 
   const income = ledgerAgg[0]?.income ?? 0;
   const costs = ledgerAgg[0]?.costs ?? 0;
-  const tax = (income * taxPct) / 100;
   const operational = opAgg[0]?.total ?? 0;
-  const distributable = income - costs - tax - operational;
+  const { tax, distributable } = profitSummary({ income, costs, operational, taxPct });
 
   const drawnByPartner = new Map<number, number>();
   for (const d of drawRows)
@@ -298,7 +298,7 @@ export async function getPartnersData(venueId: number): Promise<PartnersData> {
 
   return {
     partners: partnerRows.map((p) => {
-      const allocated = p.active ? (distributable * p.sharePct) / 100 : 0;
+      const allocated = allocateToPartner(distributable, p.sharePct, p.active);
       const drawn = drawnByPartner.get(p.id) ?? 0;
       return {
         id: p.id,
@@ -456,9 +456,12 @@ export async function getOverview(venueId: number): Promise<OverviewData> {
   }
 
   const operational = opRows.reduce((s, o) => s + o.amount, 0);
-  const dayProfit = income - costs;
-  const tax = (income * taxPct) / 100;
-  const distributable = dayProfit - operational - tax;
+  const { dayProfit, tax, distributable, margin } = profitSummary({
+    income,
+    costs,
+    operational,
+    taxPct,
+  });
 
   // events per month (non-cancelled)
   const evMonth = new Map<string, number>();
@@ -494,7 +497,7 @@ export async function getOverview(venueId: number): Promise<OverviewData> {
     operational,
     tax,
     distributable,
-    margin: income > 0 ? dayProfit / income : 0,
+    margin,
     events,
     avgProfit: events > 0 ? dayProfit / events : 0,
     partners: partnersData.partners.map((p) => ({
