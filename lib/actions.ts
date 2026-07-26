@@ -413,17 +413,20 @@ export async function addLedgerEntry(input: {
 }
 
 export async function deleteLedgerEntry(id: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   // Payment mirrors are deleted through the payment (cascade removes the row).
   const [row] = await db
     .select({ paymentId: ledger.paymentId, bookingId: ledger.bookingId })
     .from(ledger)
-    .where(eq(ledger.id, id));
-  if (row?.paymentId) {
+    .where(and(eq(ledger.id, id), eq(ledger.venueId, venueId)));
+  if (!row) return;
+  if (row.paymentId) {
     await db.delete(payments).where(eq(payments.id, row.paymentId));
     if (row.bookingId) revalidatePath(`/bookings/${row.bookingId}`);
     revalidatePath("/bookings");
   } else {
-    await db.delete(ledger).where(eq(ledger.id, id));
+    await db.delete(ledger).where(and(eq(ledger.id, id), eq(ledger.venueId, venueId)));
   }
   revalidatePath("/register");
   revalidatePath("/");
@@ -531,6 +534,8 @@ export async function updateStaff(
     active?: boolean;
   },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(staff)
     .set({
@@ -542,12 +547,14 @@ export async function updateStaff(
       ...(input.dailyRate !== undefined ? { dailyRate: input.dailyRate } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
     })
-    .where(eq(staff.id, id));
+    .where(and(eq(staff.id, id), eq(staff.venueId, venueId)));
   revalidatePath("/register");
 }
 
 export async function deleteStaff(id: number) {
-  await db.delete(staff).where(eq(staff.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(staff).where(and(eq(staff.id, id), eq(staff.venueId, venueId)));
   revalidatePath("/register");
 }
 
@@ -664,6 +671,8 @@ export async function updatePackage(
     menuTypeId?: number | null;
   },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(packages)
     .set({
@@ -676,13 +685,15 @@ export async function updatePackage(
         : {}),
       ...(input.menuTypeId !== undefined ? { menuTypeId: input.menuTypeId } : {}),
     })
-    .where(eq(packages.id, id));
+    .where(and(eq(packages.id, id), eq(packages.venueId, venueId)));
   revalidatePath("/calc");
   revalidatePath("/bookings");
 }
 
 export async function deletePackage(id: number) {
-  await db.delete(packages).where(eq(packages.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(packages).where(and(eq(packages.id, id), eq(packages.venueId, venueId)));
   revalidatePath("/calc");
   revalidatePath("/bookings");
 }
@@ -698,16 +709,35 @@ export async function addPackageDish(
 }
 
 export async function updatePackageDish(lineId: number, qtyPerGuest: number) {
-  if (!qtyPerGuest || qtyPerGuest <= 0) return;
+  const venueId = await getActiveVenueId();
+  if (!venueId || !qtyPerGuest || qtyPerGuest <= 0) return;
   await db
     .update(packageDishes)
     .set({ qtyPerGuest })
-    .where(eq(packageDishes.id, lineId));
+    .where(
+      and(
+        eq(packageDishes.id, lineId),
+        inArray(
+          packageDishes.packageId,
+          db.select({ id: packages.id }).from(packages).where(eq(packages.venueId, venueId)),
+        ),
+      ),
+    );
   revalidatePath("/calc");
 }
 
 export async function deletePackageDish(lineId: number) {
-  await db.delete(packageDishes).where(eq(packageDishes.id, lineId));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(packageDishes).where(
+    and(
+      eq(packageDishes.id, lineId),
+      inArray(
+        packageDishes.packageId,
+        db.select({ id: packages.id }).from(packages).where(eq(packages.venueId, venueId)),
+      ),
+    ),
+  );
   revalidatePath("/calc");
 }
 
@@ -715,10 +745,12 @@ export async function setBookingPackage(
   bookingId: number,
   packageId: number | null,
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(bookings)
     .set({ packageId })
-    .where(eq(bookings.id, bookingId));
+    .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/bookings");
 }
@@ -744,18 +776,37 @@ export async function updateBookingDish(
   lineId: number,
   input: { qty?: number; perGuest?: boolean },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(bookingDishes)
     .set({
       ...(input.qty !== undefined && input.qty > 0 ? { qty: input.qty } : {}),
       ...(input.perGuest !== undefined ? { perGuest: input.perGuest } : {}),
     })
-    .where(eq(bookingDishes.id, lineId));
+    .where(
+      and(
+        eq(bookingDishes.id, lineId),
+        inArray(
+          bookingDishes.bookingId,
+          db.select({ id: bookings.id }).from(bookings).where(eq(bookings.venueId, venueId)),
+        ),
+      ),
+    );
   revalidatePath("/bookings", "layout");
 }
 
 export async function deleteBookingDish(lineId: number, bookingId: number) {
-  await db.delete(bookingDishes).where(eq(bookingDishes.id, lineId));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  const [b] = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
+  if (!b) return;
+  await db
+    .delete(bookingDishes)
+    .where(and(eq(bookingDishes.id, lineId), eq(bookingDishes.bookingId, bookingId)));
   revalidatePath(`/bookings/${bookingId}`);
 }
 
@@ -821,6 +872,8 @@ export async function updateSupplier(
     active?: boolean;
   },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(suppliers)
     .set({
@@ -839,12 +892,14 @@ export async function updateSupplier(
         : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
     })
-    .where(eq(suppliers.id, id));
+    .where(and(eq(suppliers.id, id), eq(suppliers.venueId, venueId)));
   revalidatePath("/suppliers");
 }
 
 export async function deleteSupplier(id: number) {
-  await db.delete(suppliers).where(eq(suppliers.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(suppliers).where(and(eq(suppliers.id, id), eq(suppliers.venueId, venueId)));
   revalidatePath("/suppliers");
 }
 
@@ -882,10 +937,12 @@ export async function updatePurchase(
   id: number,
   input: { total?: number; paid?: number; note?: string | null },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   const [cur] = await db
     .select({ total: purchases.total, paid: purchases.paid })
     .from(purchases)
-    .where(eq(purchases.id, id));
+    .where(and(eq(purchases.id, id), eq(purchases.venueId, venueId)));
   if (!cur) return;
   const total = input.total ?? cur.total;
   const paid = input.paid ?? cur.paid;
@@ -897,7 +954,7 @@ export async function updatePurchase(
       status: purchaseStatus(total, paid),
       ...(input.note !== undefined ? { note: input.note?.trim() || null } : {}),
     })
-    .where(eq(purchases.id, id));
+    .where(and(eq(purchases.id, id), eq(purchases.venueId, venueId)));
   revalidatePath("/suppliers");
 }
 
@@ -916,7 +973,9 @@ export async function settlePurchase(id: number) {
 }
 
 export async function deletePurchase(id: number) {
-  await db.delete(purchases).where(eq(purchases.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(purchases).where(and(eq(purchases.id, id), eq(purchases.venueId, venueId)));
   revalidatePath("/suppliers");
 }
 
@@ -961,6 +1020,8 @@ export async function updateFixedCost(
   id: number,
   input: { name?: string; monthlyAmount?: number; active?: boolean },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(fixedCosts)
     .set({
@@ -970,12 +1031,14 @@ export async function updateFixedCost(
         : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
     })
-    .where(eq(fixedCosts.id, id));
+    .where(and(eq(fixedCosts.id, id), eq(fixedCosts.venueId, venueId)));
   revalidatePath("/finance");
 }
 
 export async function deleteFixedCost(id: number) {
-  await db.delete(fixedCosts).where(eq(fixedCosts.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(fixedCosts).where(and(eq(fixedCosts.id, id), eq(fixedCosts.venueId, venueId)));
   revalidatePath("/finance");
 }
 
@@ -1003,6 +1066,8 @@ export async function updateOperationalExpense(
   id: number,
   input: { name?: string; amount?: number; kind?: string; category?: string | null },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(operationalExpenses)
     .set({
@@ -1013,12 +1078,16 @@ export async function updateOperationalExpense(
         ? { category: input.category?.trim() || null }
         : {}),
     })
-    .where(eq(operationalExpenses.id, id));
+    .where(and(eq(operationalExpenses.id, id), eq(operationalExpenses.venueId, venueId)));
   revalidatePath("/finance");
 }
 
 export async function deleteOperationalExpense(id: number) {
-  await db.delete(operationalExpenses).where(eq(operationalExpenses.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .delete(operationalExpenses)
+    .where(and(eq(operationalExpenses.id, id), eq(operationalExpenses.venueId, venueId)));
   revalidatePath("/finance");
 }
 
@@ -1040,6 +1109,8 @@ export async function updatePartner(
   id: number,
   input: { name?: string; sharePct?: number; active?: boolean },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(partners)
     .set({
@@ -1049,13 +1120,15 @@ export async function updatePartner(
         : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
     })
-    .where(eq(partners.id, id));
+    .where(and(eq(partners.id, id), eq(partners.venueId, venueId)));
   revalidatePath("/finance");
   revalidatePath("/register");
 }
 
 export async function deletePartner(id: number) {
-  await db.delete(partners).where(eq(partners.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(partners).where(and(eq(partners.id, id), eq(partners.venueId, venueId)));
   revalidatePath("/finance");
   revalidatePath("/register");
 }
@@ -1082,7 +1155,9 @@ export async function addPartnerDraw(input: {
 }
 
 export async function deletePartnerDraw(id: number) {
-  await db.delete(partnerDraws).where(eq(partnerDraws.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(partnerDraws).where(and(eq(partnerDraws.id, id), eq(partnerDraws.venueId, venueId)));
   revalidatePath("/finance");
 }
 
@@ -1125,7 +1200,11 @@ export async function addAdvanceRepayment(input: {
 }
 
 export async function deleteAdvanceRepayment(id: number) {
-  await db.delete(advanceRepayments).where(eq(advanceRepayments.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .delete(advanceRepayments)
+    .where(and(eq(advanceRepayments.id, id), eq(advanceRepayments.venueId, venueId)));
   revalidatePath("/finance");
   revalidatePath("/register");
 }
@@ -1176,7 +1255,9 @@ export async function updateSetupItem(
 }
 
 export async function deleteSetupItem(id: number) {
-  await db.delete(setupItems).where(eq(setupItems.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(setupItems).where(and(eq(setupItems.id, id), eq(setupItems.venueId, venueId)));
   revalidatePath("/setup");
 }
 
@@ -1223,7 +1304,9 @@ export async function updateDebt(id: number, input: { name?: string; amount?: nu
 }
 
 export async function deleteDebt(id: number) {
-  await db.delete(debts).where(eq(debts.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(debts).where(and(eq(debts.id, id), eq(debts.venueId, venueId)));
   revalidatePath("/finance");
   revalidatePath("/register");
 }
@@ -1251,7 +1334,11 @@ export async function addDebtRepayment(input: {
 }
 
 export async function deleteDebtRepayment(id: number) {
-  await db.delete(debtRepayments).where(eq(debtRepayments.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .delete(debtRepayments)
+    .where(and(eq(debtRepayments.id, id), eq(debtRepayments.venueId, venueId)));
   revalidatePath("/finance");
   revalidatePath("/register");
 }
@@ -1314,7 +1401,11 @@ export async function updateInventoryItem(
 }
 
 export async function deleteInventoryItem(id: number) {
-  await db.delete(inventoryItems).where(eq(inventoryItems.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .delete(inventoryItems)
+    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.venueId, venueId)));
   revalidatePath("/inventory");
   revalidatePath("/calc");
 }
@@ -1331,17 +1422,36 @@ export async function addDishInventory(
 }
 
 export async function updateDishInventory(lineId: number, qtyPerPortion: number) {
-  if (!qtyPerPortion || qtyPerPortion <= 0) return;
+  const venueId = await getActiveVenueId();
+  if (!venueId || !qtyPerPortion || qtyPerPortion <= 0) return;
   await db
     .update(dishInventory)
     .set({ qtyPerPortion })
-    .where(eq(dishInventory.id, lineId));
+    .where(
+      and(
+        eq(dishInventory.id, lineId),
+        inArray(
+          dishInventory.dishId,
+          db.select({ id: dishes.id }).from(dishes).where(eq(dishes.venueId, venueId)),
+        ),
+      ),
+    );
   revalidatePath("/calc");
   revalidatePath("/inventory");
 }
 
 export async function deleteDishInventory(lineId: number) {
-  await db.delete(dishInventory).where(eq(dishInventory.id, lineId));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(dishInventory).where(
+    and(
+      eq(dishInventory.id, lineId),
+      inArray(
+        dishInventory.dishId,
+        db.select({ id: dishes.id }).from(dishes).where(eq(dishes.venueId, venueId)),
+      ),
+    ),
+  );
   revalidatePath("/calc");
   revalidatePath("/inventory");
 }
@@ -1416,10 +1526,12 @@ export async function createBooking(input: BookingInput) {
 }
 
 export async function updateBookingStatus(bookingId: number, status: string) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(bookings)
     .set({ status: status as typeof bookings.$inferInsert.status })
-    .where(eq(bookings.id, bookingId));
+    .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
   revalidatePath("/bookings");
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/receivables");
@@ -1429,11 +1541,13 @@ export async function updateBookingStatus(bookingId: number, status: string) {
 /** Set the lump-sum total a client pays (menu + rent) as a single number.
  *  Stored as extraCharges with ppg=0 so bookingTotal() == this value. */
 export async function setBookingLumpSum(bookingId: number, total: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
   const t = Math.max(total || 0, 0);
   await db
     .update(bookings)
     .set({ pricePerGuest: 0, extraCharges: t, discount: 0 })
-    .where(eq(bookings.id, bookingId));
+    .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
   revalidatePath("/bookings");
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/receivables");
@@ -1473,7 +1587,7 @@ export async function updateBooking(
       const [current] = await db
         .select({ clientId: bookings.clientId })
         .from(bookings)
-        .where(eq(bookings.id, bookingId));
+        .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
       if (current?.clientId) {
         await db
           .update(clients)
@@ -1599,7 +1713,9 @@ export async function saveBookingRequirements(bookingId: number, text: string) {
 }
 
 export async function deleteBooking(bookingId: number) {
-  await db.delete(bookings).where(eq(bookings.id, bookingId));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(bookings).where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
   revalidatePath("/bookings");
   revalidatePath("/");
 }
@@ -1607,8 +1723,16 @@ export async function deleteBooking(bookingId: number) {
 // ---------- booking finances (payments + event ledger) ----------
 
 export async function deletePayment(paymentId: number, bookingId: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  // Only touch payments whose parent booking belongs to the active venue.
+  const [b] = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
+  if (!b) return;
   // The register mirror row cascades away with the payment.
-  await db.delete(payments).where(eq(payments.id, paymentId));
+  await db.delete(payments).where(and(eq(payments.id, paymentId), eq(payments.bookingId, bookingId)));
   revalidatePath("/bookings");
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/register");
@@ -1652,7 +1776,9 @@ export async function deleteBookingLedgerEntry(
   entryId: number,
   bookingId: number,
 ) {
-  await db.delete(ledger).where(eq(ledger.id, entryId));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(ledger).where(and(eq(ledger.id, entryId), eq(ledger.venueId, venueId)));
   revalidatePath(`/bookings/${bookingId}`);
   revalidatePath("/register");
   revalidatePath("/");
@@ -1682,6 +1808,8 @@ export async function updateIngredient(
   id: number,
   input: { name?: string; pricePerUnit?: number; wastePct?: number },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(ingredients)
     .set({
@@ -1691,12 +1819,14 @@ export async function updateIngredient(
         : {}),
       ...(input.wastePct !== undefined ? { wastePct: input.wastePct } : {}),
     })
-    .where(eq(ingredients.id, id));
+    .where(and(eq(ingredients.id, id), eq(ingredients.venueId, venueId)));
   revalidatePath("/calc");
 }
 
 export async function deleteIngredient(id: number) {
-  await db.delete(ingredients).where(eq(ingredients.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(ingredients).where(and(eq(ingredients.id, id), eq(ingredients.venueId, venueId)));
   revalidatePath("/calc");
 }
 
@@ -1708,7 +1838,11 @@ export async function createDishCategory(name: string) {
 }
 
 export async function deleteDishCategory(id: number) {
-  await db.delete(dishCategories).where(eq(dishCategories.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db
+    .delete(dishCategories)
+    .where(and(eq(dishCategories.id, id), eq(dishCategories.venueId, venueId)));
   revalidatePath("/calc");
 }
 
@@ -1743,6 +1877,8 @@ export async function updateDish(
     menuTypeId?: number | null;
   },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(dishes)
     .set({
@@ -1751,7 +1887,7 @@ export async function updateDish(
       ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
       ...(input.menuTypeId !== undefined ? { menuTypeId: input.menuTypeId } : {}),
     })
-    .where(eq(dishes.id, id));
+    .where(and(eq(dishes.id, id), eq(dishes.venueId, venueId)));
   revalidatePath("/calc");
 }
 
@@ -1765,18 +1901,26 @@ export async function createMenuType(name: string) {
 }
 
 export async function renameMenuType(id: number, name: string) {
-  if (!name.trim()) return;
-  await db.update(menuTypes).set({ name: name.trim() }).where(eq(menuTypes.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId || !name.trim()) return;
+  await db
+    .update(menuTypes)
+    .set({ name: name.trim() })
+    .where(and(eq(menuTypes.id, id), eq(menuTypes.venueId, venueId)));
   revalidatePath("/calc");
 }
 
 export async function deleteMenuType(id: number) {
-  await db.delete(menuTypes).where(eq(menuTypes.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(menuTypes).where(and(eq(menuTypes.id, id), eq(menuTypes.venueId, venueId)));
   revalidatePath("/calc");
 }
 
 export async function deleteDish(id: number) {
-  await db.delete(dishes).where(eq(dishes.id, id));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(dishes).where(and(eq(dishes.id, id), eq(dishes.venueId, venueId)));
   revalidatePath("/calc");
 }
 
@@ -2100,13 +2244,35 @@ export async function addRecipeLine(
 }
 
 export async function updateRecipeLine(lineId: number, qty: number) {
-  if (!qty || qty <= 0) return;
-  await db.update(dishIngredients).set({ qty }).where(eq(dishIngredients.id, lineId));
+  const venueId = await getActiveVenueId();
+  if (!venueId || !qty || qty <= 0) return;
+  await db
+    .update(dishIngredients)
+    .set({ qty })
+    .where(
+      and(
+        eq(dishIngredients.id, lineId),
+        inArray(
+          dishIngredients.dishId,
+          db.select({ id: dishes.id }).from(dishes).where(eq(dishes.venueId, venueId)),
+        ),
+      ),
+    );
   revalidatePath("/calc");
 }
 
 export async function deleteRecipeLine(lineId: number) {
-  await db.delete(dishIngredients).where(eq(dishIngredients.id, lineId));
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  await db.delete(dishIngredients).where(
+    and(
+      eq(dishIngredients.id, lineId),
+      inArray(
+        dishIngredients.dishId,
+        db.select({ id: dishes.id }).from(dishes).where(eq(dishes.venueId, venueId)),
+      ),
+    ),
+  );
   revalidatePath("/calc");
 }
 
@@ -2117,10 +2283,12 @@ export async function addPayment(
   method: string,
 ) {
   if (!amount || amount <= 0) return { error: "თანხა აუცილებელია" };
+  const venueId = await getActiveVenueId();
+  if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
   const [booking] = await db
     .select({ venueId: bookings.venueId, eventDate: bookings.eventDate })
     .from(bookings)
-    .where(eq(bookings.id, bookingId));
+    .where(and(eq(bookings.id, bookingId), eq(bookings.venueId, venueId)));
   if (!booking) return { error: "ჯავშანი ვერ მოიძებნა" };
 
   const [payment] = await db
