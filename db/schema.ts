@@ -432,9 +432,9 @@ export const fixedCosts = pgTable("fixed_costs", {
   active: boolean("active").notNull().default(true),
 });
 
-// One-off business costs paid from advances. kind:
-//  'operational' = deducted from overall profit
-//  'partner_advance' = money partners pre-took → recovered from future profit
+// One-off business costs deducted from overall profit. The `kind` column is
+// retained for back-compat (always 'operational'); partner advances now live
+// in the partners/advance_repayments tables, not here.
 export const operationalExpenses = pgTable("operational_expenses", {
   id: serial("id").primaryKey(),
   venueId: integer("venue_id")

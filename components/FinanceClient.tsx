@@ -234,7 +234,6 @@ function OperationalSection({
                 await createOperationalExpense({
                   name: form.name,
                   amount: Number(form.amount) || 0,
-                  kind: "operational",
                   category: form.category,
                 });
                 setForm({ name: "", amount: "", category: "" });

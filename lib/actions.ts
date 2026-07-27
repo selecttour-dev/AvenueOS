@@ -1070,7 +1070,6 @@ export async function deleteFixedCost(id: number) {
 export async function createOperationalExpense(input: {
   name: string;
   amount: number;
-  kind?: string;
   category?: string;
 }) {
   const venueId = await getActiveVenueId();
@@ -1079,7 +1078,7 @@ export async function createOperationalExpense(input: {
     venueId,
     name: input.name.trim(),
     amount: input.amount || 0,
-    kind: input.kind === "partner_advance" ? "partner_advance" : "operational",
+    kind: "operational",
     category: input.category?.trim() || null,
   });
   revalidatePath("/finance");
@@ -1087,7 +1086,7 @@ export async function createOperationalExpense(input: {
 
 export async function updateOperationalExpense(
   id: number,
-  input: { name?: string; amount?: number; kind?: string; category?: string | null },
+  input: { name?: string; amount?: number; category?: string | null },
 ) {
   const venueId = await getActiveVenueId();
   if (!venueId) return;
@@ -1096,7 +1095,6 @@ export async function updateOperationalExpense(
     .set({
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
       ...(input.amount !== undefined ? { amount: input.amount } : {}),
-      ...(input.kind !== undefined ? { kind: input.kind } : {}),
       ...(input.category !== undefined
         ? { category: input.category?.trim() || null }
         : {}),
