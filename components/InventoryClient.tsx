@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   AlertTriangle,
   Boxes,
@@ -21,7 +21,7 @@ import {
 } from "@/lib/menu-shared";
 import { gel } from "@/lib/format";
 import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
-import { useConfirm } from "@/components/Modal";
+import { useConfirm, Modal } from "@/components/Modal";
 import { Package2, CircleDollarSign } from "lucide-react";
 
 type OrderRow = { dishId: number; portions: number };
@@ -121,28 +121,68 @@ function TabButton({
 
 // ---------------- Stock ----------------
 
+const EMPTY_ITEM_FORM = {
+  name: "",
+  category: "",
+  unit: "ცალი",
+  quantity: "",
+  unitPrice: "",
+  minQty: "",
+  perGuest: "",
+};
+
 function StockTab({ items }: { items: InventoryItem[] }) {
   const [pending, startTransition] = useTransition();
-  const [form, setForm] = useState({
-    name: "",
-    category: "",
-    unit: "ცალი",
-    quantity: "",
-    unitPrice: "",
-    minQty: "",
-    perGuest: "",
-  });
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ ...EMPTY_ITEM_FORM });
+
+  useEffect(() => {
+    if (showForm) setForm({ ...EMPTY_ITEM_FORM });
+  }, [showForm]);
 
   const categories = useMemo(
     () => [...new Set(items.map((i) => i.category).filter(Boolean))] as string[],
     [items],
   );
 
+  const submit = () =>
+    startTransition(async () => {
+      await createInventoryItem({
+        name: form.name,
+        category: form.category,
+        unit: form.unit,
+        quantity: Number(form.quantity) || 0,
+        unitPrice: Number(form.unitPrice) || 0,
+        minQty: form.minQty === "" ? null : Number(form.minQty),
+        perGuest: form.perGuest === "" ? null : Number(form.perGuest),
+      });
+      setShowForm(false);
+    });
+
   return (
     <>
-      <Section title="ახალი პოზიცია" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
-          <div className="lg:col-span-2">
+      <div className="mb-4 flex justify-end">
+        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+          <Plus size={16} /> ახალი პოზიცია
+        </button>
+      </div>
+
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title="ახალი პოზიცია"
+        subtitle="თეფშები, ჭიქები, დანა-ჩანგალი, ტექნიკა — რაც გაქვს."
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>გაუქმება</button>
+            <button className="btn btn-primary" disabled={pending || !form.name.trim()} onClick={submit}>
+              <Plus size={16} /> {pending ? "ინახება…" : "დამატება"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className="label">დასახელება</label>
             <input
               className="input"
@@ -196,47 +236,17 @@ function StockTab({ items }: { items: InventoryItem[] }) {
               onChange={(e) => setForm({ ...form, minQty: e.target.value })}
             />
           </div>
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <label className="label" title="სერვირების ჭურჭელი — რამდენი მიდის თითო სტუმარზე">
-                სტუმარზე
-              </label>
-              <input
-                type="number"
-                className="input"
-                placeholder="—"
-                value={form.perGuest}
-                onChange={(e) => setForm({ ...form, perGuest: e.target.value })}
-              />
-            </div>
-            <button
-              className="btn btn-primary"
-              disabled={pending || !form.name.trim()}
-              onClick={() =>
-                startTransition(async () => {
-                  await createInventoryItem({
-                    name: form.name,
-                    category: form.category,
-                    unit: form.unit,
-                    quantity: Number(form.quantity) || 0,
-                    unitPrice: Number(form.unitPrice) || 0,
-                    minQty: form.minQty === "" ? null : Number(form.minQty),
-                    perGuest: form.perGuest === "" ? null : Number(form.perGuest),
-                  });
-                  setForm({
-                    name: "",
-                    category: form.category,
-                    unit: form.unit,
-                    quantity: "",
-                    unitPrice: "",
-                    minQty: "",
-                    perGuest: "",
-                  });
-                })
-              }
-            >
-              <Plus size={16} />
-            </button>
+          <div className="sm:col-span-2">
+            <label className="label" title="სერვირების ჭურჭელი — რამდენი მიდის თითო სტუმარზე">
+              სტუმარზე (სერვირების ჭურჭელი)
+            </label>
+            <input
+              type="number"
+              className="input"
+              placeholder="—"
+              value={form.perGuest}
+              onChange={(e) => setForm({ ...form, perGuest: e.target.value })}
+            />
           </div>
         </div>
         <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
@@ -244,7 +254,7 @@ function StockTab({ items }: { items: InventoryItem[] }) {
           რაოდენობაზე მრავლდება. კერძის თეფშებს აქ ნუ შეავსებ — ისინი კერძს ებმება
           „კალკულაციებში“.
         </p>
-      </Section>
+      </Modal>
 
       <Section>
         {items.length === 0 ? (

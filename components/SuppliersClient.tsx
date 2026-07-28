@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   CheckCircle2,
   CircleDollarSign,
@@ -22,7 +22,7 @@ import {
 import type { SupplierRow, PurchaseRow } from "@/lib/queries";
 import { gel, fmtDateShort, todayISO } from "@/lib/format";
 import { PageHeader, Section, StatCard, EmptyState } from "@/components/ui";
-import { useConfirm } from "@/components/Modal";
+import { useConfirm, Modal } from "@/components/Modal";
 
 const PURCHASE_STATUS: Record<string, { label: string; bg: string; fg: string }> = {
   paid: { label: "გადახდილი", bg: "var(--green-soft)", fg: "var(--green)" },
@@ -96,18 +96,47 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
 
 function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
   const [pending, startTransition] = useTransition();
+  const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", category: "", contactPerson: "", phone: "" });
+
+  useEffect(() => {
+    if (showForm) setForm({ name: "", category: "", contactPerson: "", phone: "" });
+  }, [showForm]);
 
   const categories = useMemo(
     () => [...new Set(suppliers.map((s) => s.category).filter(Boolean))] as string[],
     [suppliers],
   );
 
+  const submit = () =>
+    startTransition(async () => {
+      await createSupplier(form);
+      setShowForm(false);
+    });
+
   return (
     <>
-      <Section title="ახალი მომწოდებელი" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="lg:col-span-2">
+      <div className="mb-4 flex justify-end">
+        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+          <Plus size={16} /> ახალი მომწოდებელი
+        </button>
+      </div>
+
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title="ახალი მომწოდებელი"
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>გაუქმება</button>
+            <button className="btn btn-primary" disabled={pending || !form.name.trim()} onClick={submit}>
+              <Plus size={16} /> {pending ? "ინახება…" : "დამატება"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className="label">დასახელება</label>
             <input className="input" placeholder="მაგ. ნიკორა" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </div>
@@ -122,26 +151,12 @@ function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
             <label className="label">კონტაქტი</label>
             <input className="input" placeholder="სახელი" value={form.contactPerson} onChange={(e) => setForm({ ...form, contactPerson: e.target.value })} />
           </div>
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <label className="label">ტელეფონი</label>
-              <input className="input" placeholder="5xx…" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            </div>
-            <button
-              className="btn btn-primary"
-              disabled={pending || !form.name.trim()}
-              onClick={() =>
-                startTransition(async () => {
-                  await createSupplier(form);
-                  setForm({ name: "", category: form.category, contactPerson: "", phone: "" });
-                })
-              }
-            >
-              <Plus size={16} />
-            </button>
+          <div className="sm:col-span-2">
+            <label className="label">ტელეფონი</label>
+            <input className="input" placeholder="5xx…" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           </div>
         </div>
-      </Section>
+      </Modal>
 
       <Section>
         {suppliers.length === 0 ? (
@@ -233,19 +248,57 @@ function SupplierRowView({ s }: { s: SupplierRow }) {
 
 function PurchasesTab({ suppliers, purchases }: { suppliers: SupplierRow[]; purchases: PurchaseRow[] }) {
   const [pending, startTransition] = useTransition();
-  const [form, setForm] = useState({
+  const [showForm, setShowForm] = useState(false);
+  const emptyForm = () => ({
     supplierId: "",
     purchaseDate: todayISO(),
     total: "",
     paid: "",
     note: "",
   });
+  const [form, setForm] = useState(emptyForm);
+
+  useEffect(() => {
+    if (showForm) setForm(emptyForm());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showForm]);
+
+  const submit = () =>
+    startTransition(async () => {
+      await createPurchase({
+        supplierId: form.supplierId ? Number(form.supplierId) : null,
+        purchaseDate: form.purchaseDate,
+        total: Number(form.total) || 0,
+        paid: Number(form.paid) || 0,
+        note: form.note,
+      });
+      setShowForm(false);
+    });
 
   return (
     <>
-      <Section title="ახალი შესყიდვა" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-          <div className="lg:col-span-2">
+      <div className="mb-4 flex justify-end">
+        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+          <Plus size={16} /> ახალი შესყიდვა
+        </button>
+      </div>
+
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title="ახალი შესყიდვა"
+        subtitle="ჯამი და გადახდილი — ვალსა და სტატუსს სისტემა თავად დაითვლის."
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>გაუქმება</button>
+            <button className="btn btn-primary" disabled={pending || !(Number(form.total) > 0)} onClick={submit}>
+              <Plus size={16} /> {pending ? "ინახება…" : "დამატება"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className="label">მომწოდებელი</label>
             <select className="select" value={form.supplierId} onChange={(e) => setForm({ ...form, supplierId: e.target.value })}>
               <option value="">— აირჩიე —</option>
@@ -264,28 +317,12 @@ function PurchasesTab({ suppliers, purchases }: { suppliers: SupplierRow[]; purc
             <label className="label">გადახდილი ₾</label>
             <input type="number" className="input" placeholder="0.00" value={form.paid} onChange={(e) => setForm({ ...form, paid: e.target.value })} />
           </div>
-          <div className="flex items-end">
-            <button
-              className="btn btn-primary w-full"
-              disabled={pending || !(Number(form.total) > 0)}
-              onClick={() =>
-                startTransition(async () => {
-                  await createPurchase({
-                    supplierId: form.supplierId ? Number(form.supplierId) : null,
-                    purchaseDate: form.purchaseDate,
-                    total: Number(form.total) || 0,
-                    paid: Number(form.paid) || 0,
-                    note: form.note,
-                  });
-                  setForm({ ...form, total: "", paid: "", note: "" });
-                })
-              }
-            >
-              <Plus size={16} /> დამატება
-            </button>
+          <div className="sm:col-span-2">
+            <label className="label">შენიშვნა</label>
+            <input className="input" placeholder="მაგ. ინვოისი, დეტალი" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
           </div>
         </div>
-      </Section>
+      </Modal>
 
       <Section>
         {purchases.length === 0 ? (
