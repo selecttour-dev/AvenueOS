@@ -718,9 +718,9 @@ export type BookingDetail = BookingRow & {
   menuDishes: { id: number; dishId: number; qty: number; perGuest: boolean }[];
   payments: BookingPayment[];
   expenses: BookingExpense[];
-  // Actual money from the day register for this event's date.
+  // Actual money booked in the register against THIS event (linked by bookingId).
   actual: { income: number; wages: number; expenses: number };
-  // Itemized register rows for that date (whole day, all events).
+  // Itemized register rows linked to this event.
   dayEntries: {
     id: number;
     type: string;

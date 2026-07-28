@@ -158,6 +158,10 @@ function DayTab({
 }) {
   const router = useRouter();
   const locked = !!day.close;
+  // Once a day is closed its totals are frozen in the close record. Show that
+  // snapshot everywhere on a locked day so the numbers stay internally
+  // consistent even if a later booking payment drifts the live ledger.
+  const totals = day.close ?? day;
 
   const go = (iso: string) => router.push(`/register?date=${iso}`);
 
@@ -245,14 +249,14 @@ function DayTab({
       )}
 
       <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={ArrowUpCircle} label="შემოსავალი" value={gel(day.income)} tone="green" />
-        <StatCard icon={UsersRound} label="ხელფასი" value={gel(day.wages)} tone="red" />
-        <StatCard icon={ArrowDownCircle} label="ხარჯი" value={gel(day.expenses)} tone="red" />
+        <StatCard icon={ArrowUpCircle} label="შემოსავალი" value={gel(totals.income)} tone="green" />
+        <StatCard icon={UsersRound} label="ხელფასი" value={gel(totals.wages)} tone="red" />
+        <StatCard icon={ArrowDownCircle} label="ხარჯი" value={gel(totals.expenses)} tone="red" />
         <StatCard
           icon={Wallet}
           label="სუფთა"
-          value={gel(day.net)}
-          tone={day.net >= 0 ? "green" : "red"}
+          value={gel(totals.net)}
+          tone={totals.net >= 0 ? "green" : "red"}
         />
       </div>
 
@@ -265,7 +269,7 @@ function DayTab({
         </div>
         <div className="grid gap-6">
           <ZReportPanel day={day} partners={partners} />
-          <DeductPanel key={day.date} advances={advances} debtList={debtList} day={day} net={day.net} />
+          <DeductPanel key={day.date} advances={advances} debtList={debtList} day={day} net={totals.net} />
         </div>
       </div>
     </>
@@ -422,7 +426,15 @@ function QuickAddPanel({
                     border: "1px solid var(--border)",
                   }
             }
-            onClick={() => setType(t)}
+            onClick={() => {
+              setType(t);
+              // Income linked to a booking always lands on that event's own
+              // day, so only this day's events may be linked — clear an
+              // off-day booking if the user switches to income.
+              if (t === "income" && otherBookings.some((b) => String(b.id) === bookingId)) {
+                setBookingId(dayEvents.length === 1 ? String(dayEvents[0].id) : "");
+              }
+            }}
           >
             {TYPE_LABELS[t]}
           </button>
@@ -493,7 +505,9 @@ function QuickAddPanel({
                 ))}
               </optgroup>
             )}
-            {otherBookings.length > 0 && (
+            {/* Income belongs to the event's own day, so off-day events can
+                only be linked from expense/wage entries. */}
+            {type !== "income" && otherBookings.length > 0 && (
               <optgroup label="სხვა ჯავშნები">
                 {otherBookings.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -503,6 +517,11 @@ function QuickAddPanel({
               </optgroup>
             )}
           </select>
+          {type === "income" && bookingId && (
+            <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
+              ივენთის გადახდა ჯავშნის გვერდზეც აისახება.
+            </p>
+          )}
         </div>
         <div>
           <label className="label">შენიშვნა</label>
@@ -675,22 +694,25 @@ function ZReportPanel({ day, partners }: { day: RegisterDay; partners: PartnerLi
     day.close?.countedCash != null ? String(day.close.countedCash) : "",
   );
   const locked = !!day.close;
-  const expected = locked ? day.close!.expectedCash : day.expectedCash;
+  // On a locked day read every line from the frozen close snapshot so the
+  // report always balances (opening + income − wages − expenses = expected).
+  const src = day.close ?? day;
+  const expected = src.expectedCash;
   const diff = counted !== "" ? Number(counted) - expected : null;
 
   return (
     <Section title="დღის დახურვა (Z-რეპორტი)">
       <div className="flex flex-col gap-2 text-sm">
-        <ZLine label="საწყისი ნაშთი" value={gel(day.openingBalance)} />
-        <ZLine label="+ შემოსავალი" value={gel(day.income)} color="var(--green)" />
-        <ZLine label="− ხელფასი" value={gel(day.wages)} color="var(--red)" />
-        <ZLine label="− ხარჯი" value={gel(day.expenses)} color="var(--red)" />
+        <ZLine label="საწყისი ნაშთი" value={gel(src.openingBalance)} />
+        <ZLine label="+ შემოსავალი" value={gel(src.income)} color="var(--green)" />
+        <ZLine label="− ხელფასი" value={gel(src.wages)} color="var(--red)" />
+        <ZLine label="− ხარჯი" value={gel(src.expenses)} color="var(--red)" />
         <div style={{ borderTop: "1px solid var(--border)" }} className="mt-1 pt-2">
           <ZLine label="მოსალოდნელი ნაღდი" value={gel(expected)} strong />
         </div>
       </div>
 
-      {partners.length > 0 && day.net !== 0 && (
+      {partners.length > 0 && src.net !== 0 && (
         <div
           className="mt-4 rounded-xl px-4 py-3"
           style={{ background: "var(--surface-2)" }}
@@ -704,7 +726,7 @@ function ZReportPanel({ day, partners }: { day: RegisterDay; partners: PartnerLi
                 <span style={{ color: "var(--text-2)" }}>
                   {p.name} ({p.sharePct}%)
                 </span>
-                <span className="font-bold">{gel((day.net * p.sharePct) / 100)}</span>
+                <span className="font-bold">{gel((src.net * p.sharePct) / 100)}</span>
               </div>
             ))}
           </div>

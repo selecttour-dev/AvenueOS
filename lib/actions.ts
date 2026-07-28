@@ -568,7 +568,7 @@ export async function updateStaff(
       ...(input.phone !== undefined
         ? { phone: input.phone?.trim() || null }
         : {}),
-      ...(input.dailyRate !== undefined ? { dailyRate: input.dailyRate } : {}),
+      ...(input.dailyRate !== undefined ? { dailyRate: nonNeg(input.dailyRate) } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
     })
     .where(and(eq(staff.id, id), eq(staff.venueId, venueId)));
