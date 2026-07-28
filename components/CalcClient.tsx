@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   Calculator,
   Carrot,
@@ -61,7 +61,7 @@ import {
 } from "@/lib/menu-shared";
 import { gel } from "@/lib/format";
 import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
-import { useConfirm } from "@/components/Modal";
+import { useConfirm, Modal } from "@/components/Modal";
 
 type Props = {
   ingredients: MenuIngredient[];
@@ -330,8 +330,13 @@ function IngredientsTab({
   dishes: MenuDish[];
 }) {
   const [pending, startTransition] = useTransition();
+  const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", unit: "kg", price: "", waste: "" });
   const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (showForm) setForm({ name: "", unit: "kg", price: "", waste: "" });
+  }, [showForm]);
 
   const usedCount = useMemo(() => {
     const m = new Map<number, number>();
@@ -345,11 +350,41 @@ function IngredientsTab({
     ? ingredients.filter((i) => i.name.toLowerCase().includes(q))
     : ingredients;
 
+  const submit = () =>
+    startTransition(async () => {
+      await createIngredient({
+        name: form.name,
+        unit: form.unit,
+        pricePerUnit: Number(form.price) || 0,
+        wastePct: Number(form.waste) || 0,
+      });
+      setShowForm(false);
+    });
+
   return (
     <>
-      <Section title="ახალი ინგრედიენტი" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="lg:col-span-2">
+      <div className="mb-4 flex justify-end">
+        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+          <Plus size={16} /> ახალი ინგრედიენტი
+        </button>
+      </div>
+
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title="ახალი ინგრედიენტი"
+        subtitle="ფასი და დანაკარგი — თვითღირებულება კერძებში ავტომატურად აისახება."
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>გაუქმება</button>
+            <button className="btn btn-primary" disabled={pending || !form.name.trim()} onClick={submit}>
+              <Plus size={16} /> {pending ? "ინახება…" : "დამატება"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className="label">დასახელება</label>
             <input
               className="input"
@@ -380,37 +415,18 @@ function IngredientsTab({
               onChange={(e) => setForm({ ...form, price: e.target.value })}
             />
           </div>
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <label className="label">დანაკარგი %</label>
-              <input
-                type="number"
-                className="input"
-                placeholder="0"
-                value={form.waste}
-                onChange={(e) => setForm({ ...form, waste: e.target.value })}
-              />
-            </div>
-            <button
-              className="btn btn-primary"
-              disabled={pending || !form.name.trim()}
-              onClick={() =>
-                startTransition(async () => {
-                  await createIngredient({
-                    name: form.name,
-                    unit: form.unit,
-                    pricePerUnit: Number(form.price) || 0,
-                    wastePct: Number(form.waste) || 0,
-                  });
-                  setForm({ name: "", unit: form.unit, price: "", waste: "" });
-                })
-              }
-            >
-              <Plus size={16} />
-            </button>
+          <div className="sm:col-span-2">
+            <label className="label">დანაკარგი %</label>
+            <input
+              type="number"
+              className="input"
+              placeholder="0"
+              value={form.waste}
+              onChange={(e) => setForm({ ...form, waste: e.target.value })}
+            />
           </div>
         </div>
-      </Section>
+      </Modal>
 
       {ingredients.length > 0 && (
         <div className="relative mb-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -43,7 +43,7 @@ import { addAdvanceRepayment, addDebtRepayment } from "@/lib/actions";
 import { EXPENSE_CATEGORIES } from "@/lib/booking-shared";
 import { gel, fmtDate, monthNameKa, todayISO } from "@/lib/format";
 import { PageHeader, Section, StatCard, EmptyState } from "@/components/ui";
-import { useConfirm } from "@/components/Modal";
+import { useConfirm, Modal } from "@/components/Modal";
 
 const TYPE_LABELS: Record<string, string> = {
   income: "შემოსავალი",
@@ -801,13 +801,48 @@ function ZLine({
 
 function StaffTab({ staff }: { staff: StaffMember[] }) {
   const [pending, startTransition] = useTransition();
+  const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", role: "", phone: "", rate: "" });
+
+  useEffect(() => {
+    if (showForm) setForm({ name: "", role: "", phone: "", rate: "" });
+  }, [showForm]);
+
+  const submit = () =>
+    startTransition(async () => {
+      await createStaff({
+        name: form.name,
+        role: form.role,
+        phone: form.phone,
+        dailyRate: Number(form.rate) || 0,
+      });
+      setShowForm(false);
+    });
 
   return (
     <>
-      <Section title="ახალი თანამშრომელი" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="lg:col-span-2">
+      <div className="mb-4 flex justify-end">
+        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+          <Plus size={16} /> ახალი თანამშრომელი
+        </button>
+      </div>
+
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title="ახალი თანამშრომელი"
+        subtitle="დღიური განაკვეთით — მერე ერთი კლიკით დააფიქსირებ დღის ცვლას."
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>გაუქმება</button>
+            <button className="btn btn-primary" disabled={pending || !form.name.trim()} onClick={submit}>
+              <Plus size={16} /> {pending ? "ინახება…" : "დამატება"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className="label">სახელი</label>
             <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </div>
@@ -819,27 +854,12 @@ function StaffTab({ staff }: { staff: StaffMember[] }) {
             <label className="label">დღიური ₾</label>
             <input type="number" className="input" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} />
           </div>
-          <div className="flex items-end">
-            <button
-              className="btn btn-primary w-full"
-              disabled={pending || !form.name.trim()}
-              onClick={() =>
-                startTransition(async () => {
-                  await createStaff({
-                    name: form.name,
-                    role: form.role,
-                    phone: form.phone,
-                    dailyRate: Number(form.rate) || 0,
-                  });
-                  setForm({ name: "", role: "", phone: "", rate: "" });
-                })
-              }
-            >
-              <Plus size={16} /> დამატება
-            </button>
+          <div className="sm:col-span-2">
+            <label className="label">ტელეფონი</label>
+            <input className="input" placeholder="5xx…" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           </div>
         </div>
-      </Section>
+      </Modal>
 
       <Section>
         {staff.length === 0 ? (
