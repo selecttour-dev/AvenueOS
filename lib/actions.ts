@@ -64,6 +64,12 @@ async function ownsAll(
   return true;
 }
 
+/** Money/quantity guard: coerce to a number and never let it go below zero. */
+function nonNeg(n: number | undefined | null): number {
+  const v = Number(n);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 // ---------- venues ----------
 
 export async function setActiveVenue(venueId: number) {
@@ -537,7 +543,7 @@ export async function createStaff(input: {
     name: input.name.trim(),
     role: input.role?.trim() || null,
     phone: input.phone?.trim() || null,
-    dailyRate: input.dailyRate || 0,
+    dailyRate: nonNeg(input.dailyRate),
   });
   revalidatePath("/register");
 }
@@ -671,7 +677,7 @@ export async function createPackage(input: {
     .values({
       venueId,
       name: input.name.trim(),
-      pricePerGuest: input.pricePerGuest || 0,
+      pricePerGuest: nonNeg(input.pricePerGuest),
       description: input.description?.trim() || null,
       menuTypeId: input.menuTypeId ?? null,
     })
@@ -941,8 +947,8 @@ export async function createPurchase(input: {
 }) {
   const venueId = await getActiveVenueId();
   if (!venueId || !input.purchaseDate) return { error: "თარიღი აუცილებელია" };
-  const total = input.total || 0;
-  const paid = input.paid || 0;
+  const total = nonNeg(input.total);
+  const paid = nonNeg(input.paid);
   await db.insert(purchases).values({
     venueId,
     supplierId: input.supplierId ?? null,
@@ -1034,7 +1040,7 @@ export async function createFixedCost(input: {
   await db.insert(fixedCosts).values({
     venueId,
     name: input.name.trim(),
-    monthlyAmount: input.monthlyAmount || 0,
+    monthlyAmount: nonNeg(input.monthlyAmount),
   });
   revalidatePath("/finance");
 }
@@ -1077,7 +1083,7 @@ export async function createOperationalExpense(input: {
   await db.insert(operationalExpenses).values({
     venueId,
     name: input.name.trim(),
-    amount: input.amount || 0,
+    amount: nonNeg(input.amount),
     kind: "operational",
     category: input.category?.trim() || null,
   });
@@ -1382,10 +1388,10 @@ export async function createInventoryItem(input: {
     name: input.name.trim(),
     category: input.category?.trim() || null,
     unit: input.unit.trim() || "ცალი",
-    quantity: input.quantity || 0,
-    unitPrice: input.unitPrice || 0,
-    minQty: input.minQty ?? null,
-    perGuest: input.perGuest ?? null,
+    quantity: nonNeg(input.quantity),
+    unitPrice: nonNeg(input.unitPrice),
+    minQty: input.minQty == null ? null : nonNeg(input.minQty),
+    perGuest: input.perGuest == null ? null : nonNeg(input.perGuest),
   });
   revalidatePath("/inventory");
   revalidatePath("/calc");
@@ -1821,8 +1827,8 @@ export async function createIngredient(input: {
     venueId,
     name: input.name.trim(),
     unit: input.unit as typeof ingredients.$inferInsert.unit,
-    pricePerUnit: input.pricePerUnit || 0,
-    wastePct: input.wastePct || 0,
+    pricePerUnit: nonNeg(input.pricePerUnit),
+    wastePct: Math.min(nonNeg(input.wastePct), 100),
   });
   revalidatePath("/calc");
 }
@@ -1884,7 +1890,7 @@ export async function createDish(input: {
       name: input.name.trim(),
       categoryId: input.categoryId,
       menuTypeId: input.menuTypeId ?? null,
-      sellPrice: input.sellPrice || 0,
+      sellPrice: nonNeg(input.sellPrice),
     })
     .returning({ id: dishes.id });
   revalidatePath("/calc");
