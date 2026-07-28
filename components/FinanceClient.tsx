@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import {
   CalendarDays,
   HandCoins,
@@ -41,7 +41,7 @@ import type {
 } from "@/lib/queries";
 import { gel, fmtDateShort, todayISO } from "@/lib/format";
 import { PageHeader, Section, EmptyState, StatCard } from "@/components/ui";
-import { useConfirm } from "@/components/Modal";
+import { useConfirm, Modal } from "@/components/Modal";
 import { Percent } from "lucide-react";
 
 export default function FinanceClient({
@@ -200,50 +200,78 @@ function OperationalSection({
   operational: OperationalExpenseRow[];
 }) {
   const [pending, startTransition] = useTransition();
+  const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", amount: "", category: "" });
   const opCost = operational.reduce((s, o) => s + o.amount, 0);
 
+  useEffect(() => {
+    if (showForm) setForm({ name: "", amount: "", category: "" });
+  }, [showForm]);
+
+  const submit = () =>
+    startTransition(async () => {
+      await createOperationalExpense({
+        name: form.name,
+        amount: Number(form.amount) || 0,
+        category: form.category,
+      });
+      setShowForm(false);
+    });
+
   return (
-    <Section title="საერთო / ერთჯერადი ხარჯები">
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="lg:col-span-2">
-          <label className="label">დასახელება</label>
-          <input
-            className="input"
-            placeholder="მაგ. ჭურჭელი / ბუსტი"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
+    <Section
+      title="საერთო / ერთჯერადი ხარჯები"
+      action={
+        <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
+          <Plus size={15} /> დამატება
+        </button>
+      }
+    >
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title="ახალი საერთო ხარჯი"
+        subtitle="ერთჯერადი/ოპერაციული — ჭურჭელი, ინვენტარი, ბუსტი, გაფორმება."
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>გაუქმება</button>
+            <button className="btn btn-primary" disabled={pending || !form.name.trim()} onClick={submit}>
+              <Plus size={16} /> {pending ? "ინახება…" : "დამატება"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="label">დასახელება</label>
+            <input
+              className="input"
+              placeholder="მაგ. ჭურჭელი / ბუსტი"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">თანხა ₾</label>
+            <input
+              type="number"
+              className="input"
+              placeholder="0.00"
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">კატეგორია</label>
+            <input
+              className="input"
+              placeholder="არასავალდებულო"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+            />
+          </div>
         </div>
-        <div>
-          <label className="label">თანხა ₾</label>
-          <input
-            type="number"
-            className="input"
-            placeholder="0.00"
-            value={form.amount}
-            onChange={(e) => setForm({ ...form, amount: e.target.value })}
-          />
-        </div>
-        <div className="flex items-end">
-          <button
-            className="btn btn-primary w-full"
-            disabled={pending || !form.name.trim()}
-            onClick={() =>
-              startTransition(async () => {
-                await createOperationalExpense({
-                  name: form.name,
-                  amount: Number(form.amount) || 0,
-                  category: form.category,
-                });
-                setForm({ name: "", amount: "", category: "" });
-              })
-            }
-          >
-            <Plus size={16} /> დამატება
-          </button>
-        </div>
-      </div>
+      </Modal>
 
       {operational.length === 0 ? (
         <EmptyState
@@ -329,63 +357,69 @@ function FixedCostsSection({
   monthlyTotal: number;
 }) {
   const [pending, startTransition] = useTransition();
+  const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", amount: "" });
+
+  useEffect(() => {
+    if (showForm) setForm({ name: "", amount: "" });
+  }, [showForm]);
+
+  const submit = () =>
+    startTransition(async () => {
+      await createFixedCost({ name: form.name, monthlyAmount: Number(form.amount) || 0 });
+      setShowForm(false);
+    });
 
   return (
     <Section
       title="ფიქსირებული ხარჯები"
       action={
-        <span className="text-sm font-bold" style={{ color: "var(--red)" }}>
-          {gel(monthlyTotal)} / თვე
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-bold" style={{ color: "var(--red)" }}>
+            {gel(monthlyTotal)} / თვე
+          </span>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
+            <Plus size={15} /> დამატება
+          </button>
+        </div>
       }
     >
-      <div className="mb-5 flex flex-wrap items-end gap-3">
-        <div className="min-w-48 flex-1">
-          <label className="label">დასახელება</label>
-          <input
-            className="input"
-            placeholder="მაგ. იჯარა"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && form.name.trim())
-                startTransition(async () => {
-                  await createFixedCost({
-                    name: form.name,
-                    monthlyAmount: Number(form.amount) || 0,
-                  });
-                  setForm({ name: "", amount: "" });
-                });
-            }}
-          />
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title="ახალი ფიქსირებული ხარჯი"
+        subtitle="თვის მუდმივი ხარჯი — იჯარა, კომუნალური, დაცვა, ინტერნეტი…"
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>გაუქმება</button>
+            <button className="btn btn-primary" disabled={pending || !form.name.trim()} onClick={submit}>
+              <Plus size={16} /> {pending ? "ინახება…" : "დამატება"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="label">დასახელება</label>
+            <input
+              className="input"
+              placeholder="მაგ. იჯარა"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">თანხა / თვე ₾</label>
+            <input
+              type="number"
+              className="input"
+              placeholder="5000"
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+            />
+          </div>
         </div>
-        <div>
-          <label className="label">თანხა / თვე ₾</label>
-          <input
-            type="number"
-            className="input !w-36"
-            placeholder="5000"
-            value={form.amount}
-            onChange={(e) => setForm({ ...form, amount: e.target.value })}
-          />
-        </div>
-        <button
-          className="btn btn-primary"
-          disabled={pending || !form.name.trim()}
-          onClick={() =>
-            startTransition(async () => {
-              await createFixedCost({
-                name: form.name,
-                monthlyAmount: Number(form.amount) || 0,
-              });
-              setForm({ name: "", amount: "" });
-            })
-          }
-        >
-          <Plus size={16} /> დამატება
-        </button>
-      </div>
+      </Modal>
 
       {fixedCosts.length === 0 ? (
         <EmptyState

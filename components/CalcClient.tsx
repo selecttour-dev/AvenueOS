@@ -571,8 +571,30 @@ function DishesTab({
   const [addingCat, setAddingCat] = useState(false);
   const [newCat, setNewCat] = useState("");
   const [form, setForm] = useState({ name: "", categoryId: "", menuTypeId: "", sellPrice: "" });
+  const [showForm, setShowForm] = useState(false);
   const [query, setQuery] = useState("");
   const [justCreatedId, setJustCreatedId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (showForm) setForm({ name: "", categoryId: "", menuTypeId: "", sellPrice: "" });
+  }, [showForm]);
+
+  const submitDish = () =>
+    startTransition(async () => {
+      const menuTypeId = form.menuTypeId
+        ? Number(form.menuTypeId)
+        : typeFilter !== "all" && typeFilter !== -1
+          ? typeFilter
+          : null;
+      const id = await createDish({
+        name: form.name,
+        categoryId: form.categoryId ? Number(form.categoryId) : null,
+        menuTypeId,
+        sellPrice: Number(form.sellPrice) || 0,
+      });
+      if (id) setJustCreatedId(id);
+      setShowForm(false);
+    });
 
   const matchType = (d: MenuDish) =>
     typeFilter === "all"
@@ -698,9 +720,28 @@ function DishesTab({
         )}
       </div>
 
-      <Section title="ახალი კერძი" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div>
+      <div className="mb-4 flex justify-end">
+        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+          <Plus size={16} /> ახალი კერძი
+        </button>
+      </div>
+
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title="ახალი კერძი"
+        subtitle="ინგრედიენტებსა და თვითღირებულებას ბარათის გახსნის შემდეგ დაამატებ."
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>გაუქმება</button>
+            <button className="btn btn-primary" disabled={pending || !form.name.trim()} onClick={submitDish}>
+              <Plus size={16} /> {pending ? "ინახება…" : "დამატება"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className="label">კერძის სახელი</label>
             <input
               className="input"
@@ -741,7 +782,7 @@ function DishesTab({
               ))}
             </select>
           </div>
-          <div>
+          <div className={menuTypes.length > 0 ? "sm:col-span-2" : ""}>
             <label className="label">გასაყიდი ფასი ₾</label>
             <input
               type="number"
@@ -751,33 +792,8 @@ function DishesTab({
               onChange={(e) => setForm({ ...form, sellPrice: e.target.value })}
             />
           </div>
-          <div className="flex items-end">
-            <button
-              className="btn btn-primary w-full"
-              disabled={pending || !form.name.trim()}
-              onClick={() =>
-                startTransition(async () => {
-                  const menuTypeId = form.menuTypeId
-                    ? Number(form.menuTypeId)
-                    : typeFilter !== "all" && typeFilter !== -1
-                      ? typeFilter
-                      : null;
-                  const id = await createDish({
-                    name: form.name,
-                    categoryId: form.categoryId ? Number(form.categoryId) : null,
-                    menuTypeId,
-                    sellPrice: Number(form.sellPrice) || 0,
-                  });
-                  if (id) setJustCreatedId(id);
-                  setForm({ name: "", categoryId: form.categoryId, menuTypeId: form.menuTypeId, sellPrice: "" });
-                })
-              }
-            >
-              <Plus size={16} /> დამატება
-            </button>
-          </div>
         </div>
-      </Section>
+      </Modal>
 
       {dishes.length > 0 && (
         <div className="relative mb-4">
@@ -1629,8 +1645,28 @@ function PackagesTab({
 }) {
   const [pending, startTransition] = useTransition();
   const [form, setForm] = useState({ name: "", price: "", menuTypeId: "" });
+  const [showForm, setShowForm] = useState(false);
   const [typeFilter, setTypeFilter] = useState<number | "all">("all");
   const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (showForm) setForm({ name: "", price: "", menuTypeId: "" });
+  }, [showForm]);
+
+  const submitPackage = () =>
+    startTransition(async () => {
+      const menuTypeId = form.menuTypeId
+        ? Number(form.menuTypeId)
+        : typeFilter !== "all" && typeFilter !== -1
+          ? typeFilter
+          : null;
+      await createPackage({
+        name: form.name,
+        pricePerGuest: Number(form.price) || 0,
+        menuTypeId,
+      });
+      setShowForm(false);
+    });
 
   const pq = query.trim().toLowerCase();
   const visiblePkgs = packages.filter(
@@ -1685,9 +1721,28 @@ function PackagesTab({
         </div>
       )}
 
-      <Section title="ახალი პაკეტი" className="mb-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="lg:col-span-2">
+      <div className="mb-4 flex justify-end">
+        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+          <Plus size={16} /> ახალი პაკეტი
+        </button>
+      </div>
+
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title="ახალი პაკეტი"
+        subtitle="კერძებს პაკეტის ბარათის გახსნის შემდეგ მიაბამ."
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>გაუქმება</button>
+            <button className="btn btn-primary" disabled={pending || !form.name.trim()} onClick={submitPackage}>
+              <Plus size={16} /> {pending ? "ინახება…" : "დამატება"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className="label">პაკეტის სახელი</label>
             <input
               className="input"
@@ -1711,7 +1766,7 @@ function PackagesTab({
               </select>
             </div>
           )}
-          <div>
+          <div className={menuTypes.length > 0 ? "" : "sm:col-span-2"}>
             <label className="label">ფასი სტუმარზე ₾</label>
             <input
               type="number"
@@ -1721,31 +1776,8 @@ function PackagesTab({
               onChange={(e) => setForm({ ...form, price: e.target.value })}
             />
           </div>
-          <div className="flex items-end">
-            <button
-              className="btn btn-primary w-full"
-              disabled={pending || !form.name.trim()}
-              onClick={() =>
-                startTransition(async () => {
-                  const menuTypeId = form.menuTypeId
-                    ? Number(form.menuTypeId)
-                    : typeFilter !== "all" && typeFilter !== -1
-                      ? typeFilter
-                      : null;
-                  await createPackage({
-                    name: form.name,
-                    pricePerGuest: Number(form.price) || 0,
-                    menuTypeId,
-                  });
-                  setForm({ name: "", price: "", menuTypeId: form.menuTypeId });
-                })
-              }
-            >
-              <Plus size={16} /> დამატება
-            </button>
-          </div>
         </div>
-      </Section>
+      </Modal>
 
       {packages.length > 0 && (
         <div className="relative mb-4">
