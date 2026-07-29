@@ -1170,6 +1170,8 @@ export async function addPartnerDraw(input: {
   if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
   if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
   if (!input.drawDate) return { error: "თარიღი აუცილებელია" };
+  if (!(await ownsAll(venueId, [[partners, input.partnerId]])))
+    return { error: "პარტნიორი ვერ მოიძებნა" };
   await db.insert(partnerDraws).values({
     venueId,
     partnerId: input.partnerId,
@@ -1214,6 +1216,8 @@ export async function addAdvanceRepayment(input: {
   if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
   if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
   if (!input.repayDate) return { error: "თარიღი აუცილებელია" };
+  if (!(await ownsAll(venueId, [[partners, input.partnerId]])))
+    return { error: "პარტნიორი ვერ მოიძებნა" };
   await db.insert(advanceRepayments).values({
     venueId,
     partnerId: input.partnerId,
@@ -1348,6 +1352,8 @@ export async function addDebtRepayment(input: {
   if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
   if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
   if (!input.repayDate) return { error: "თარიღი აუცილებელია" };
+  if (!(await ownsAll(venueId, [[debts, input.debtId]])))
+    return { error: "ვალი ვერ მოიძებნა" };
   await db.insert(debtRepayments).values({
     venueId,
     debtId: input.debtId,

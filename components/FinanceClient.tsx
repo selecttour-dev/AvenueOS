@@ -745,10 +745,23 @@ function PartnersTab({
             <Plus size={15} /> დამატება
           </button>
         </div>
-        <p className="mt-3 text-xs" style={{ color: "var(--text-3)" }}>
-          წილების ჯამი:{" "}
-          {partners.filter((p) => p.active).reduce((s, p) => s + p.sharePct, 0)}%
-        </p>
+        {(() => {
+          const shareSum = partners
+            .filter((p) => p.active)
+            .reduce((s, p) => s + p.sharePct, 0);
+          const off = Math.abs(shareSum - 100) > 0.01;
+          return (
+            <p
+              className="mt-3 text-xs font-semibold"
+              style={{ color: off && partners.some((p) => p.active) ? "var(--amber)" : "var(--text-3)" }}
+            >
+              წილების ჯამი: {shareSum}%
+              {off && partners.some((p) => p.active) && (
+                <span> — ჯამი 100% არ არის, მოგება არასწორად გაიყოფა.</span>
+              )}
+            </p>
+          );
+        })()}
       </Section>
     </>
   );
