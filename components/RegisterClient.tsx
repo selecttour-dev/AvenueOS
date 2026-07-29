@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowDownCircle,
   ArrowUpCircle,
   CalendarDays,
@@ -100,7 +101,13 @@ export default function RegisterClient({
       </div>
 
       {tab === "day" && (
-        <DayTab day={day} partners={partners} advances={advances} debtList={debtList} />
+        <DayTab
+          day={day}
+          partners={partners}
+          advances={advances}
+          debtList={debtList}
+          incomeTaxPct={incomeTaxPct}
+        />
       )}
       {tab === "staff" && <StaffTab staff={day.staff} />}
       {tab === "month" && (
@@ -150,11 +157,13 @@ function DayTab({
   partners,
   advances,
   debtList,
+  incomeTaxPct,
 }: {
   day: RegisterDay;
   partners: PartnerLite[];
   advances: PartnerAdvance[];
   debtList: DebtRow[];
+  incomeTaxPct: number;
 }) {
   const router = useRouter();
   const locked = !!day.close;
@@ -268,7 +277,7 @@ function DayTab({
           <EntriesPanel day={day} locked={locked} />
         </div>
         <div className="grid gap-6">
-          <ZReportPanel day={day} partners={partners} />
+          <ZReportPanel day={day} partners={partners} incomeTaxPct={incomeTaxPct} />
           <DeductPanel key={day.date} advances={advances} debtList={debtList} day={day} net={totals.net} />
         </div>
       </div>
@@ -387,6 +396,11 @@ function QuickAddPanel({
   const otherBookings = day.bookings.filter(
     (b) => !dayEvents.some((e) => e.id === b.id),
   );
+  // A booking selected for income that happens on a different day — its money
+  // will land on that event's date, not the day being edited.
+  const selectedOffDay = bookingId
+    ? otherBookings.find((b) => String(b.id) === bookingId)
+    : undefined;
 
   const add = () =>
     startTransition(async () => {
@@ -426,15 +440,7 @@ function QuickAddPanel({
                     border: "1px solid var(--border)",
                   }
             }
-            onClick={() => {
-              setType(t);
-              // Income linked to a booking always lands on that event's own
-              // day, so only this day's events may be linked — clear an
-              // off-day booking if the user switches to income.
-              if (t === "income" && otherBookings.some((b) => String(b.id) === bookingId)) {
-                setBookingId(dayEvents.length === 1 ? String(dayEvents[0].id) : "");
-              }
-            }}
+            onClick={() => setType(t)}
           >
             {TYPE_LABELS[t]}
           </button>
@@ -505,9 +511,7 @@ function QuickAddPanel({
                 ))}
               </optgroup>
             )}
-            {/* Income belongs to the event's own day, so off-day events can
-                only be linked from expense/wage entries. */}
-            {type !== "income" && otherBookings.length > 0 && (
+            {otherBookings.length > 0 && (
               <optgroup label="სხვა ჯავშნები">
                 {otherBookings.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -517,7 +521,16 @@ function QuickAddPanel({
               </optgroup>
             )}
           </select>
-          {type === "income" && bookingId && (
+          {type === "income" && bookingId && selectedOffDay && (
+            <p
+              className="mt-1.5 flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+              style={{ background: "var(--amber-soft)", color: "var(--amber)" }}
+            >
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              ეს გადახდა ივენთის თარიღზე ({fmtDate(selectedOffDay.eventDate)}) დაჯდება, არა ამ დღეს — ივენთს ეკუთვნის.
+            </p>
+          )}
+          {type === "income" && bookingId && !selectedOffDay && (
             <p className="mt-1 text-xs" style={{ color: "var(--text-3)" }}>
               ივენთის გადახდა ჯავშნის გვერდზეც აისახება.
             </p>
@@ -688,7 +701,15 @@ function EntryRow({ e, locked }: { e: RegisterDay["entries"][number]; locked: bo
   );
 }
 
-function ZReportPanel({ day, partners }: { day: RegisterDay; partners: PartnerLite[] }) {
+function ZReportPanel({
+  day,
+  partners,
+  incomeTaxPct,
+}: {
+  day: RegisterDay;
+  partners: PartnerLite[];
+  incomeTaxPct: number;
+}) {
   const [pending, startTransition] = useTransition();
   const [counted, setCounted] = useState(
     day.close?.countedCash != null ? String(day.close.countedCash) : "",
@@ -699,6 +720,9 @@ function ZReportPanel({ day, partners }: { day: RegisterDay; partners: PartnerLi
   const src = day.close ?? day;
   const expected = src.expectedCash;
   const diff = counted !== "" ? Number(counted) - expected : null;
+  // Partners split what's left after income tax, matching the month view.
+  const dayTax = (src.income * incomeTaxPct) / 100;
+  const netAfterTax = src.net - dayTax;
 
   return (
     <Section title="დღის დახურვა (Z-რეპორტი)">
@@ -712,7 +736,7 @@ function ZReportPanel({ day, partners }: { day: RegisterDay; partners: PartnerLi
         </div>
       </div>
 
-      {partners.length > 0 && src.net !== 0 && (
+      {partners.length > 0 && netAfterTax !== 0 && (
         <div
           className="mt-4 rounded-xl px-4 py-3"
           style={{ background: "var(--surface-2)" }}
@@ -720,13 +744,19 @@ function ZReportPanel({ day, partners }: { day: RegisterDay; partners: PartnerLi
           <div className="mb-1.5 flex items-center gap-1.5 text-xs font-bold" style={{ color: "var(--text-2)" }}>
             <Users size={13} /> დღის მოგების განაწილება
           </div>
+          {incomeTaxPct > 0 && (
+            <div className="mb-1.5 flex items-center justify-between text-xs" style={{ color: "var(--text-3)" }}>
+              <span>− გადასახადი {incomeTaxPct}%</span>
+              <span>{gel(dayTax)}</span>
+            </div>
+          )}
           <div className="flex flex-col gap-1 text-sm">
             {partners.map((p) => (
               <div key={p.id} className="flex items-center justify-between">
                 <span style={{ color: "var(--text-2)" }}>
                   {p.name} ({p.sharePct}%)
                 </span>
-                <span className="font-bold">{gel((src.net * p.sharePct) / 100)}</span>
+                <span className="font-bold">{gel((netAfterTax * p.sharePct) / 100)}</span>
               </div>
             ))}
           </div>
