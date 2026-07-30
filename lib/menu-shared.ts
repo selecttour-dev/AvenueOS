@@ -199,8 +199,10 @@ export function packageCostPerGuest(
   dishesById: Map<number, MenuDish>,
   ingredientsById: Map<number, MenuIngredient>,
 ): number {
-  if (pkg.dishes.length === 0) return pkg.manualCostPerGuest ?? 0;
-  return menuCostPerGuest(pkg.dishes, dishesById, ingredientsById);
+  // Use the recipe-derived cost when it's real; otherwise fall back to the
+  // manual per-guest cost (covers packages whose dishes have no recipe yet).
+  const recipeCost = menuCostPerGuest(pkg.dishes, dishesById, ingredientsById);
+  return recipeCost > 0 ? recipeCost : (pkg.manualCostPerGuest ?? 0);
 }
 
 export function packageOrder(

@@ -850,6 +850,7 @@ function PartnerCard({ p }: { p: PartnersData["partners"][number] }) {
 
 function AdvancesSection({ advances }: { advances: PartnerAdvance[] }) {
   const [pending, startTransition] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
   const [form, setForm] = useState({
     partnerId: advances[0] ? String(advances[0].id) : "",
     date: todayISO(),
@@ -909,13 +910,17 @@ function AdvancesSection({ advances }: { advances: PartnerAdvance[] }) {
               disabled={pending || !form.partnerId || !(Number(form.amount) > 0)}
               onClick={() =>
                 startTransition(async () => {
-                  await addAdvanceRepayment({
+                  const res = await addAdvanceRepayment({
                     partnerId: Number(form.partnerId),
                     amount: Number(form.amount) || 0,
                     repayDate: form.date,
                     note: form.note,
                   });
-                  setForm({ ...form, amount: "", note: "" });
+                  if (res?.error) setErr(res.error);
+                  else {
+                    setErr(null);
+                    setForm({ ...form, amount: "", note: "" });
+                  }
                 })
               }
             >
@@ -923,6 +928,9 @@ function AdvancesSection({ advances }: { advances: PartnerAdvance[] }) {
             </button>
           </div>
         </div>
+        {err && (
+          <p className="mt-2 text-sm font-semibold" style={{ color: "var(--red)" }}>{err}</p>
+        )}
       </div>
 
       <div className="mt-3 text-right text-sm">
@@ -1015,6 +1023,7 @@ function AdvanceCard({
 
 function DebtsSection({ debtList }: { debtList: DebtRow[] }) {
   const [pending, startTransition] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", amount: "" });
   const [repay, setRepay] = useState({
     debtId: "",
@@ -1104,13 +1113,17 @@ function DebtsSection({ debtList }: { debtList: DebtRow[] }) {
                 disabled={pending || !(Number(repay.amount) > 0)}
                 onClick={() =>
                   startTransition(async () => {
-                    await addDebtRepayment({
+                    const res = await addDebtRepayment({
                       debtId: Number(repay.debtId || withDebt[0].id),
                       amount: Number(repay.amount) || 0,
                       repayDate: repay.date,
                       note: repay.note,
                     });
-                    setRepay({ ...repay, amount: "", note: "" });
+                    if (res?.error) setErr(res.error);
+                    else {
+                      setErr(null);
+                      setRepay({ ...repay, amount: "", note: "" });
+                    }
                   })
                 }
               >
@@ -1118,6 +1131,9 @@ function DebtsSection({ debtList }: { debtList: DebtRow[] }) {
               </button>
             </div>
           </div>
+          {err && (
+            <p className="mt-2 text-sm font-semibold" style={{ color: "var(--red)" }}>{err}</p>
+          )}
         </div>
       )}
 

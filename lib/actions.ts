@@ -845,6 +845,10 @@ export async function applyPackageToBookingMenu(
   bookingId: number,
   packageId: number,
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
+  // Both the target booking and the source package must be this venue's.
+  if (!(await ownsAll(venueId, [[bookings, bookingId], [packages, packageId]]))) return;
   const pkgDishes = await db
     .select()
     .from(packageDishes)
@@ -989,15 +993,17 @@ export async function updatePurchase(
 
 /** Mark a purchase fully paid (paid = total). */
 export async function settlePurchase(id: number) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   const [cur] = await db
     .select({ total: purchases.total })
     .from(purchases)
-    .where(eq(purchases.id, id));
+    .where(and(eq(purchases.id, id), eq(purchases.venueId, venueId)));
   if (!cur) return;
   await db
     .update(purchases)
     .set({ paid: cur.total, status: purchaseStatus(cur.total, cur.total) })
-    .where(eq(purchases.id, id));
+    .where(and(eq(purchases.id, id), eq(purchases.venueId, venueId)));
   revalidatePath("/suppliers");
 }
 
@@ -1216,8 +1222,20 @@ export async function addAdvanceRepayment(input: {
   if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
   if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
   if (!input.repayDate) return { error: "თარიღი აუცილებელია" };
-  if (!(await ownsAll(venueId, [[partners, input.partnerId]])))
-    return { error: "პარტნიორი ვერ მოიძებნა" };
+  const [p] = await db
+    .select({ advance: partners.advanceAmount })
+    .from(partners)
+    .where(and(eq(partners.id, input.partnerId), eq(partners.venueId, venueId)));
+  if (!p) return { error: "პარტნიორი ვერ მოიძებნა" };
+  const [agg] = await db
+    .select({ repaid: sql<number>`coalesce(sum(${advanceRepayments.amount}), 0)::float` })
+    .from(advanceRepayments)
+    .where(
+      and(eq(advanceRepayments.venueId, venueId), eq(advanceRepayments.partnerId, input.partnerId)),
+    );
+  const remaining = p.advance - (agg?.repaid ?? 0);
+  if (input.amount > remaining + 0.01)
+    return { error: `დარჩენილია მხოლოდ ${remaining.toFixed(2)} ₾` };
   await db.insert(advanceRepayments).values({
     venueId,
     partnerId: input.partnerId,
@@ -1352,8 +1370,18 @@ export async function addDebtRepayment(input: {
   if (!venueId) return { error: "ობიექტი არ არის არჩეული" };
   if (!input.amount || input.amount <= 0) return { error: "თანხა აუცილებელია" };
   if (!input.repayDate) return { error: "თარიღი აუცილებელია" };
-  if (!(await ownsAll(venueId, [[debts, input.debtId]])))
-    return { error: "ვალი ვერ მოიძებნა" };
+  const [d] = await db
+    .select({ amount: debts.amount })
+    .from(debts)
+    .where(and(eq(debts.id, input.debtId), eq(debts.venueId, venueId)));
+  if (!d) return { error: "ვალი ვერ მოიძებნა" };
+  const [agg] = await db
+    .select({ repaid: sql<number>`coalesce(sum(${debtRepayments.amount}), 0)::float` })
+    .from(debtRepayments)
+    .where(and(eq(debtRepayments.venueId, venueId), eq(debtRepayments.debtId, input.debtId)));
+  const remaining = d.amount - (agg?.repaid ?? 0);
+  if (input.amount > remaining + 0.01)
+    return { error: `დარჩენილია მხოლოდ ${remaining.toFixed(2)} ₾` };
   await db.insert(debtRepayments).values({
     venueId,
     debtId: input.debtId,
@@ -1415,6 +1443,8 @@ export async function updateInventoryItem(
     perGuest?: number | null;
   },
 ) {
+  const venueId = await getActiveVenueId();
+  if (!venueId) return;
   await db
     .update(inventoryItems)
     .set({
@@ -1422,12 +1452,12 @@ export async function updateInventoryItem(
       ...(input.category !== undefined
         ? { category: input.category?.trim() || null }
         : {}),
-      ...(input.quantity !== undefined ? { quantity: input.quantity } : {}),
-      ...(input.unitPrice !== undefined ? { unitPrice: input.unitPrice } : {}),
-      ...(input.minQty !== undefined ? { minQty: input.minQty } : {}),
-      ...(input.perGuest !== undefined ? { perGuest: input.perGuest } : {}),
+      ...(input.quantity !== undefined ? { quantity: nonNeg(input.quantity) } : {}),
+      ...(input.unitPrice !== undefined ? { unitPrice: nonNeg(input.unitPrice) } : {}),
+      ...(input.minQty !== undefined ? { minQty: input.minQty == null ? null : nonNeg(input.minQty) } : {}),
+      ...(input.perGuest !== undefined ? { perGuest: input.perGuest == null ? null : nonNeg(input.perGuest) } : {}),
     })
-    .where(eq(inventoryItems.id, id));
+    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.venueId, venueId)));
   revalidatePath("/inventory");
   revalidatePath("/calc");
   revalidatePath("/bookings", "layout");
