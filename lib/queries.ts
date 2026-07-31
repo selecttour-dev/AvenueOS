@@ -1303,13 +1303,14 @@ export async function getAnalytics(
   let upcomingEvents = 0;
   for (const b of bookingRows) {
     if (b.status === "cancelled") continue;
+    // Count every future event, even those past the 12-month chart window.
+    if (b.eventDate >= todayStr) upcomingEvents += 1;
     const ym = b.eventDate.slice(0, 7);
     const i = idx.get(ym);
     if (i == null) continue;
     months[i].events += 1;
     bookedDaySets[i].add(b.eventDate);
     eventTypeMap.set(b.eventType, (eventTypeMap.get(b.eventType) ?? 0) + 1);
-    if (b.eventDate >= todayStr) upcomingEvents += 1;
   }
   months.forEach((m, i) => (m.bookedDays = bookedDaySets[i].size));
 
@@ -1377,10 +1378,11 @@ export async function getForecastData(venueId: number): Promise<ForecastData> {
           sql`${bookings.status} <> 'cancelled'`,
         ),
       ),
-    // per-dish recipe cost, averaged in JS as a rough food-cost proxy
+    // per-dish recipe cost, averaged in JS as a rough food-cost proxy.
+    // 'pc' ingredients are priced per piece (no /1000), matching lineCost().
     db
       .select({
-        cost: sql<number>`coalesce(sum(${dishIngredients.qty} / 1000.0 * ${ingredients.pricePerUnit} * (1 + ${ingredients.wastePct} / 100.0)), 0)::float`,
+        cost: sql<number>`coalesce(sum((case when ${ingredients.unit} = 'pc' then ${dishIngredients.qty} else ${dishIngredients.qty} / 1000.0 end) * ${ingredients.pricePerUnit} * (1 + ${ingredients.wastePct} / 100.0)), 0)::float`,
       })
       .from(dishIngredients)
       .innerJoin(dishes, eq(dishes.id, dishIngredients.dishId))
